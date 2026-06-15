@@ -799,7 +799,8 @@ function shareRef() {
   // Telegram WebApp
   const tg = window.Telegram?.WebApp;
   if (tg) { tg.expand(); tg.ready(); }
-  const tgUser = tg?.initDataUnsafe?.user;
+  // Try multiple ways to get Telegram user
+  const tgUser = tg?.initDataUnsafe?.user || tg?.initData?.user || null;
   let userId, userName, userPhoto;
 
   const startParam = tg?.initDataUnsafe?.start_param || new URLSearchParams(window.location.search).get('start') || new URLSearchParams(window.location.search).get('ref') || null;
@@ -1240,6 +1241,7 @@ function shareRef() {
   .claim-btn:disabled{background:var(--border);color:var(--muted);cursor:not-allowed;}
   .claim-empty{text-align:center;padding:20px;color:var(--muted);font-size:13px;}
 </style>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
 </head>
 <body>
 
