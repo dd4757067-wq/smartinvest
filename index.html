@@ -904,8 +904,13 @@ function shareRef() {
         window.userData.referred_by = refParam;
         await creditReferrer(refParam);
       }
+      if (userName && userName !== 'User' && existingData.name !== userName) {
+        await update(userRef, { name: userName });
+        window.userData.name = userName;
+      }
       if (userPhoto && existingData.photo !== userPhoto) {
-        await update(userRef, { name: userName, photo: userPhoto });
+        await update(userRef, { photo: userPhoto });
+        window.userData.photo = userPhoto;
       }
     }
     renderUI();
