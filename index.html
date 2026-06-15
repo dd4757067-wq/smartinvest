@@ -652,19 +652,19 @@ async function claimTaskReward() {
       return;
     }
     const ud = window.userData;
-    const newBal = (ud.balance || 0) + 0.5;
+    const newBal = (ud.balance || 0) + 0.1;
     await window.firebaseUpdate(window.firebaseRef(window.db, 'users/' + uid), { balance: newBal });
     await window.firebaseSet(window.firebaseRef(window.db, 'task_rewards/tg_join/' + uid), { claimed: true, time: Date.now() });
     await window.firebasePush(window.firebaseRef(window.db, 'transactions/' + uid), {
-      type: 'bonus', amount: 0.5, note: 'Telegram Group Join Task', status: 'success', time: Date.now()
+      type: 'bonus', amount: 0.1, note: 'Telegram Group Join Task', status: 'success', time: Date.now()
     });
     window.userData.balance = newBal;
     renderUI();
     const cb = document.getElementById('task-claim-btn');
     if (cb) { cb.textContent = '✅ Claimed'; cb.disabled = true; cb.style.background = '#333'; cb.style.color = '#aaa'; }
     const s = document.getElementById('task-status');
-    if (s) s.textContent = '🎉 $0.50 credited to your balance!';
-    showToast('🎉 $0.50 reward added!');
+    if (s) s.textContent = '🎉 $0.10 credited to your balance!';
+    showToast('🎉 $0.10 reward added!');
   } catch(e) { showToast('❌ Error: ' + (e.message || 'Try again')); }
 }
 
@@ -1407,9 +1407,9 @@ Deposit USDT and start earning daily returns.
       <div style="width:48px;height:48px;background:linear-gradient(135deg,#0d47a1,#1565c0);border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:24px;flex-shrink:0;">&#128226;</div>
       <div style="flex:1;">
         <div style="font-size:14px;font-weight:700;margin-bottom:2px;">Join Our Telegram Group</div>
-        <div style="font-size:12px;color:var(--muted);">Join our official group and earn $0.50 reward</div>
+        <div style="font-size:12px;color:var(--muted);">Join our official group and earn $0.10 reward</div>
       </div>
-      <div style="font-size:15px;font-weight:700;color:var(--green);flex-shrink:0;">+$0.50</div>
+      <div style="font-size:15px;font-weight:700;color:var(--green);flex-shrink:0;">+$0.10</div>
     </div>
 
     <!-- Step 1: Join button only -->
@@ -1426,7 +1426,7 @@ Deposit USDT and start earning daily returns.
 
     <!-- Step 3: Claim button (hidden initially) -->
     <div id="task-step3" style="display:none;margin-top:14px;">
-      <button onclick="claimTaskReward()" id="task-claim-btn" style="width:100%;background:linear-gradient(135deg,#00c853,#00e676);color:#000;font-size:14px;font-weight:700;padding:12px;border-radius:12px;border:none;cursor:pointer;">&#127873; Claim $0.50</button>
+      <button onclick="claimTaskReward()" id="task-claim-btn" style="width:100%;background:linear-gradient(135deg,#00c853,#00e676);color:#000;font-size:14px;font-weight:700;padding:12px;border-radius:12px;border:none;cursor:pointer;">&#127873; Claim $0.10</button>
     </div>
 
     <div id="task-status" style="margin-top:10px;font-size:12px;text-align:center;color:var(--muted);"></div>
