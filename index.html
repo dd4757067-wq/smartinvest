@@ -357,6 +357,7 @@ function goPage(name) {
   if (name === 'withdraw') updateWitAvail();
   if (name === 'history') renderHistoryPage(window.currentHistoryTab || 'all');
   if (name === 'txdetail') { renderDTabLists(); switchDTab('deposit'); }
+  if (name === 'tasks') { checkTaskStatus(); }
 }
 
 function showToast(msg) {
@@ -595,6 +596,76 @@ async function refreshData() {
   } catch(e) {
     showToast('❌ Refresh failed');
   }
+}
+
+
+async function checkTaskStatus() {
+  const uid = window.userId;
+  if (!uid || !window.db) return;
+  try {
+    const snap = await window.firebaseGet(window.firebaseRef(window.db, 'task_rewards/tg_join/' + uid));
+    if (snap.exists()) {
+      // Already claimed — show claimed state
+      document.getElementById('task-step1').style.display = 'none';
+      document.getElementById('task-step2').style.display = 'none';
+      document.getElementById('task-step3').style.display = 'block';
+      const cb = document.getElementById('task-claim-btn');
+      if (cb) { cb.textContent = '✅ Claimed'; cb.disabled = true; cb.style.background = '#333'; cb.style.color = '#aaa'; }
+      const s = document.getElementById('task-status');
+      if (s) s.textContent = '✅ Reward already claimed.';
+    }
+  } catch(e) {}
+}
+
+function joinTelegramTask() {
+  window.open('https://t.me/smcfxsignals100', '_blank');
+  // Show countdown, hide join button
+  document.getElementById('task-step1').style.display = 'none';
+  document.getElementById('task-step2').style.display = 'block';
+  let seconds = 60;
+  const countEl = document.getElementById('task-countdown');
+  const timer = setInterval(() => {
+    seconds--;
+    if (countEl) countEl.textContent = seconds;
+    if (seconds <= 0) {
+      clearInterval(timer);
+      // Show claim button
+      document.getElementById('task-step2').style.display = 'none';
+      document.getElementById('task-step3').style.display = 'block';
+      const s = document.getElementById('task-status');
+      if (s) s.textContent = '✅ Verification done! Click Claim to get your reward.';
+    }
+  }, 1000);
+}
+
+async function claimTaskReward() {
+  const uid = window.userId;
+  if (!uid) { showToast('❌ Please open via Telegram bot'); return; }
+  try {
+    const alreadyClaimed = await window.firebaseGet(window.firebaseRef(window.db, 'task_rewards/tg_join/' + uid));
+    if (alreadyClaimed.exists()) {
+      showToast('⚠️ Already claimed!');
+      const cb = document.getElementById('task-claim-btn');
+      if (cb) { cb.textContent = '✅ Claimed'; cb.disabled = true; cb.style.background = '#333'; cb.style.color = '#aaa'; }
+      const s = document.getElementById('task-status');
+      if (s) s.textContent = '✅ Reward already claimed.';
+      return;
+    }
+    const ud = window.userData;
+    const newBal = (ud.balance || 0) + 0.5;
+    await window.firebaseUpdate(window.firebaseRef(window.db, 'users/' + uid), { balance: newBal });
+    await window.firebaseSet(window.firebaseRef(window.db, 'task_rewards/tg_join/' + uid), { claimed: true, time: Date.now() });
+    await window.firebasePush(window.firebaseRef(window.db, 'transactions/' + uid), {
+      type: 'bonus', amount: 0.5, note: 'Telegram Group Join Task', status: 'success', time: Date.now()
+    });
+    window.userData.balance = newBal;
+    renderUI();
+    const cb = document.getElementById('task-claim-btn');
+    if (cb) { cb.textContent = '✅ Claimed'; cb.disabled = true; cb.style.background = '#333'; cb.style.color = '#aaa'; }
+    const s = document.getElementById('task-status');
+    if (s) s.textContent = '🎉 $0.50 credited to your balance!';
+    showToast('🎉 $0.50 reward added!');
+  } catch(e) { showToast('❌ Error: ' + (e.message || 'Try again')); }
 }
 
 function copyRef() {
@@ -1190,7 +1261,7 @@ Deposit USDT and start earning daily returns.
   <div class="quick-actions">
     <div class="qa-btn" onclick="goPage('deposit')"><div class="qa-icon">💰</div><div class="qa-label">Deposit</div></div>
     <div class="qa-btn" onclick="goPage('withdraw')"><div class="qa-icon">💸</div><div class="qa-label">Withdraw</div></div>
-    <div class="qa-btn" onclick="goPage('multiply')"><div class="qa-icon">📋</div><div class="qa-label">Plans</div></div>
+    <div class="qa-btn" onclick="goPage('tasks')"><div class="qa-icon">♻️</div><div class="qa-label">Tasks</div></div>
     <div class="qa-btn" onclick="goPage('referral')"><div class="qa-icon">🔗</div><div class="qa-label">Referral</div></div>
   </div>
 
@@ -1326,6 +1397,41 @@ Deposit USDT and start earning daily returns.
       </ol>
     </div>
   </div>
+</div>
+
+<!-- TASKS -->
+<div class="page" id="page-tasks">
+  <div class="form-title" style="padding:4px 0 12px">♻️ Tasks</div>
+  <div style="background:var(--card);border:1px solid var(--border);border-radius:16px;padding:16px;margin-bottom:14px;">
+    <div style="display:flex;align-items:center;gap:12px;">
+      <div style="width:48px;height:48px;background:linear-gradient(135deg,#0d47a1,#1565c0);border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:24px;flex-shrink:0;">&#128226;</div>
+      <div style="flex:1;">
+        <div style="font-size:14px;font-weight:700;margin-bottom:2px;">Join Our Telegram Group</div>
+        <div style="font-size:12px;color:var(--muted);">Join our official group and earn $0.50 reward</div>
+      </div>
+      <div style="font-size:15px;font-weight:700;color:var(--green);flex-shrink:0;">+$0.50</div>
+    </div>
+
+    <!-- Step 1: Join button only -->
+    <div id="task-step1" style="margin-top:14px;">
+      <button onclick="joinTelegramTask()" id="task-join-btn" style="width:100%;background:linear-gradient(135deg,#229ED9,#1a7fb5);color:#fff;font-size:13px;font-weight:700;padding:12px;border-radius:12px;border:none;cursor:pointer;">&#128242; Join Group</button>
+    </div>
+
+    <!-- Step 2: Countdown (hidden initially) -->
+    <div id="task-step2" style="display:none;margin-top:14px;text-align:center;">
+      <div style="font-size:13px;color:var(--muted);margin-bottom:8px;">Please wait while we verify...</div>
+      <div id="task-countdown" style="font-size:28px;font-weight:700;color:var(--green);">60</div>
+      <div style="font-size:11px;color:var(--muted);margin-top:4px;">seconds remaining</div>
+    </div>
+
+    <!-- Step 3: Claim button (hidden initially) -->
+    <div id="task-step3" style="display:none;margin-top:14px;">
+      <button onclick="claimTaskReward()" id="task-claim-btn" style="width:100%;background:linear-gradient(135deg,#00c853,#00e676);color:#000;font-size:14px;font-weight:700;padding:12px;border-radius:12px;border:none;cursor:pointer;">&#127873; Claim $0.50</button>
+    </div>
+
+    <div id="task-status" style="margin-top:10px;font-size:12px;text-align:center;color:var(--muted);"></div>
+  </div>
+  <div style="background:var(--card);border:1px solid var(--border);border-radius:16px;padding:14px;text-align:center;color:var(--muted);font-size:13px;">&#128284; More tasks coming soon...</div>
 </div>
 
 <!-- PLANS -->
