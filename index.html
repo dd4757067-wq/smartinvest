@@ -496,16 +496,49 @@ function updateWitAvail() {
 }
 
 function selectMainnet(net) {
-  document.getElementById('mn-bep20').classList.toggle('active', net === 'BEP20');
-  document.getElementById('mn-trc20').classList.toggle('active', net === 'TRC20');
+  // সব বাটন reset
+  ['mn-bep20','mn-trc20','mn-bkash','mn-nagad','mn-rocket'].forEach(function(id) {
+    var el = document.getElementById(id);
+    if (el) el.classList.remove('active');
+  });
+  // Selected activate
+  var selMap = { 'BEP20':'mn-bep20', 'TRC20':'mn-trc20', 'bKash':'mn-bkash', 'Nagad':'mn-nagad', 'Rocket':'mn-rocket' };
+  var selEl = document.getElementById(selMap[net]);
+  if (selEl) selEl.classList.add('active');
+
   window.currentMainnet = net;
-  const noteEl = document.getElementById('wit-minmax-note');
+
+  // Address input label ও placeholder আপডেট
+  var label = document.getElementById('wit-addr-label');
+  var input = document.getElementById('wit-phone');
+  var minmax = document.getElementById('wit-minmax');
+  var minmaxNote = document.getElementById('wit-minmax-note');
+
   if (net === 'TRC20') {
-    document.getElementById('wit-minmax').textContent = 'Min: $5 USDT · Max: 999999 USDT';
-    noteEl.innerHTML = 'Minimum withdrawal: <b style="color:var(--gold)">$5 USDT</b> · Maximum: <b style="color:var(--gold)">999,999 USDT</b>.';
-  } else {
-    document.getElementById('wit-minmax').textContent = 'Min: $5 USDT · Max: 999999 USDT';
-    noteEl.innerHTML = 'Minimum withdrawal: <b style="color:var(--gold)">$5 USDT</b> · Maximum: <b style="color:var(--gold)">999,999 USDT</b>.';
+    if(label) label.textContent = 'Withdrawal Address (TRC20)';
+    if(input) input.placeholder = 'Enter TRC20 wallet address';
+    if(minmax) minmax.textContent = 'Min: $5 USDT · Max: 999,999 USDT';
+    if(minmaxNote) minmaxNote.innerHTML = 'Minimum: <b style="color:var(--gold)">$5 USDT</b> · Maximum: <b style="color:var(--gold)">999,999 USDT</b>';
+  } else if (net === 'BEP20') {
+    if(label) label.textContent = 'Withdrawal Address (BEP20)';
+    if(input) input.placeholder = 'Enter BEP20 wallet address';
+    if(minmax) minmax.textContent = 'Min: $5 USDT · Max: 999,999 USDT';
+    if(minmaxNote) minmaxNote.innerHTML = 'Minimum: <b style="color:var(--gold)">$5 USDT</b> · Maximum: <b style="color:var(--gold)">999,999 USDT</b>';
+  } else if (net === 'bKash') {
+    if(label) label.textContent = 'bKash Number';
+    if(input) input.placeholder = 'e.g. 01XXXXXXXXX';
+    if(minmax) minmax.textContent = 'Min: $5 · Max: 999,999';
+    if(minmaxNote) minmaxNote.innerHTML = 'Minimum: <b style="color:var(--gold)">$5</b> · Maximum: <b style="color:var(--gold)">999,999</b>';
+  } else if (net === 'Nagad') {
+    if(label) label.textContent = 'Nagad Number';
+    if(input) input.placeholder = 'e.g. 01XXXXXXXXX';
+    if(minmax) minmax.textContent = 'Min: $5 · Max: 999,999';
+    if(minmaxNote) minmaxNote.innerHTML = 'Minimum: <b style="color:var(--gold)">$5</b> · Maximum: <b style="color:var(--gold)">999,999</b>';
+  } else if (net === 'Rocket') {
+    if(label) label.textContent = 'Rocket Number';
+    if(input) input.placeholder = 'e.g. 01XXXXXXXXX';
+    if(minmax) minmax.textContent = 'Min: $5 · Max: 999,999';
+    if(minmaxNote) minmaxNote.innerHTML = 'Minimum: <b style="color:var(--gold)">$5</b> · Maximum: <b style="color:var(--gold)">999,999</b>';
   }
   calcWit();
 }
@@ -555,7 +588,9 @@ async function submitDeposit() {
 
 async function submitWithdraw() {
   const amount = parseFloat(document.getElementById('wit-amount').value);
-  const method = (window.currentMainnet || 'BEP20') + '-USDT';
+  const mainnet = window.currentMainnet || 'BEP20';
+  // bKash/Nagad/Rocket এর জন্য -USDT যোগ করবো না
+  const method = ['bKash','Nagad','Rocket'].includes(mainnet) ? mainnet : mainnet + '-USDT';
   const phone = document.getElementById('wit-phone').value;
   if (!amount) { showToast('❌ Enter amount'); return; }
   if (!phone) { showToast('❌ Enter your wallet address'); return; }
@@ -1443,18 +1478,27 @@ Deposit USDT and start earning daily returns.
     <div class="form-title">💸 Extract</div>
     <div class="form-subtitle">Withdraw your earnings securely</div>
 
-    <div class="form-label" style="margin-bottom:10px">Choose Mainnet</div>
-    <div class="mainnet-btns">
+    <div class="form-label" style="margin-bottom:10px">Choose Method</div>
+    <div class="mainnet-btns" style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
       <div class="mainnet-btn active" id="mn-bep20" onclick="selectMainnet('BEP20')">
         <span class="coin-icon">💎</span> BEP20-USDT
       </div>
       <div class="mainnet-btn" id="mn-trc20" onclick="selectMainnet('TRC20')">
         <span class="coin-icon">₿</span> TRC20-USDT
       </div>
+      <div class="mainnet-btn" id="mn-bkash" onclick="selectMainnet('bKash')">
+        <span class="coin-icon">💳</span> bKash
+      </div>
+      <div class="mainnet-btn" id="mn-nagad" onclick="selectMainnet('Nagad')">
+        <span class="coin-icon">📱</span> Nagad
+      </div>
+      <div class="mainnet-btn" id="mn-rocket" onclick="selectMainnet('Rocket')" style="grid-column:1/-1;">
+        <span class="coin-icon">🚀</span> Rocket
+      </div>
     </div>
 
     <div class="form-group">
-      <label class="form-label">Withdrawal Address</label>
+      <label class="form-label" id="wit-addr-label">Withdrawal Address</label>
       <input type="text" class="form-input" placeholder="Enter your wallet address" id="wit-phone">
     </div>
 
