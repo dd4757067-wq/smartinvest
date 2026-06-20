@@ -770,6 +770,134 @@ function closeIdentityModal() {
   document.getElementById('identity-modal').style.display = 'none';
 }
 
+// ===== STATISTICS =====
+var statsInterval = null;
+var statsAnimInterval = null;
+
+var cryptoList = [
+  { id:'bitcoin',      sym:'BTC', color:'#F7931A' },
+  { id:'ethereum',     sym:'ETH', color:'#627EEA' },
+  { id:'tron',         sym:'TRX', color:'#EF0027' },
+  { id:'ripple',       sym:'XRP', color:'#346AA9' },
+  { id:'litecoin',     sym:'LTC', color:'#BFBBBB' },
+  { id:'toncoin',      sym:'TON', color:'#0098EA' },
+  { id:'dogecoin',     sym:'DOGE',color:'#C3A634' },
+  { id:'solana',       sym:'SOL', color:'#9945FF' },
+  { id:'binancecoin',  sym:'BNB', color:'#F3BA2F' },
+  { id:'cardano',      sym:'ADA', color:'#0033AD' },
+];
+
+// Demo base prices — real API না থাকলে এগুলো ব্যবহার হবে
+var demoPrices = {
+  BTC:{price:104250,change:2.34}, ETH:{price:2890,change:1.87},
+  TRX:{price:0.2891,change:-0.75}, XRP:{price:2.341,change:3.29},
+  LTC:{price:98.40,change:4.53}, TON:{price:3.124,change:-1.20},
+  DOGE:{price:0.1823,change:0.95}, SOL:{price:172.40,change:2.10},
+  BNB:{price:645.20,change:1.45}, ADA:{price:0.7823,change:-0.62}
+};
+
+async function loadStats() {
+  // Profit ticker লুকাও
+  var ticker = document.getElementById('profit-ticker');
+  if (ticker) ticker.style.display = 'none';
+
+  // Long/Short auto-animate শুরু করো
+  startLongShortAnimate();
+
+  // Crypto prices load করো
+  try {
+    var ids = cryptoList.map(function(c){ return c.id; }).join(',');
+    var res = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=' + ids + '&vs_currencies=usd&include_24hr_change=true');
+    var data = await res.json();
+    // Real data দিয়ে demoPrices update করো
+    cryptoList.forEach(function(c) {
+      if (data[c.id]) {
+        demoPrices[c.sym] = { price: data[c.id].usd, change: data[c.id].usd_24h_change || 0 };
+      }
+    });
+  } catch(e) {}
+
+  // Crypto list render করো এবং auto-animate শুরু করো
+  renderAndAnimateCrypto();
+
+  // Hide refresh time label
+  var rt = document.getElementById('stats-refresh-time');
+  if (rt) rt.style.display = 'none';
+
+  // Auto refresh every 30 seconds
+  if (statsInterval) clearInterval(statsInterval);
+  statsInterval = setInterval(function() {
+    if (!document.getElementById('page-stats').classList.contains('active')) return;
+    // Prices একটু fluctuate করো
+    Object.keys(demoPrices).forEach(function(sym) {
+      demoPrices[sym].change += (Math.random() - 0.5) * 0.3;
+      demoPrices[sym].price *= (1 + (Math.random() - 0.5) * 0.001);
+    });
+    renderAndAnimateCrypto();
+  }, 30000);
+}
+
+function startLongShortAnimate() {
+  if (statsAnimInterval) clearInterval(statsAnimInterval);
+
+  var longVal = 50.40;
+
+  function animateLongShort() {
+    if (!document.getElementById('page-stats').classList.contains('active')) return;
+    // প্রতিবার ছোট step এ বাড়বে/কমবে — very smooth
+    longVal += (Math.random() - 0.5) * 0.8;
+    if (longVal < 42) longVal = 42;
+    if (longVal > 58) longVal = 58;
+    var shortVal = 100 - longVal;
+    var longEl = document.getElementById('long-pct');
+    var shortEl = document.getElementById('short-pct');
+    var longBar = document.getElementById('long-bar');
+    var shortBar = document.getElementById('short-bar');
+    if (longEl) longEl.textContent = longVal.toFixed(2) + '%';
+    if (shortEl) shortEl.textContent = shortVal.toFixed(2) + '%';
+    if (longBar) longBar.style.width = longVal + '%';
+    if (shortBar) shortBar.style.width = shortVal + '%';
+  }
+
+  animateLongShort();
+  // প্রতি 500ms — খুব fast
+  statsAnimInterval = setInterval(animateLongShort, 500);
+}
+
+function renderAndAnimateCrypto() {
+  var html = '';
+  cryptoList.forEach(function(c) {
+    var d = demoPrices[c.sym];
+    if (!d) return;
+    // প্রতিবার render-এ ছোট fluctuation
+    d.change += (Math.random() - 0.5) * 0.15;
+    d.price *= (1 + (Math.random() - 0.5) * 0.0008);
+    var change = d.change;
+    var isLong = change >= 0;
+    var pctClass = change >= 0 ? 'pos' : 'neg';
+    var pctStr = (change >= 0 ? '+' : '') + change.toFixed(2) + '%';
+    var price = d.price;
+    var priceStr = price >= 1000 ? '$' + price.toLocaleString('en-US',{maximumFractionDigits:0}) :
+                   price >= 1 ? '$' + price.toFixed(3) :
+                   '$' + price.toFixed(4);
+    html += '<div class="crypto-card">' +
+      '<div style="width:42px;height:42px;border-radius:50%;background:' + c.color + '22;border:2px solid ' + c.color + ';display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:800;color:' + c.color + ';flex-shrink:0;">' + c.sym.charAt(0) + '</div>' +
+      '<div><div class="crypto-name">' + c.sym + '</div><div class="crypto-price">' + priceStr + '</div></div>' +
+      '<div class="crypto-pct ' + pctClass + '">' + pctStr + '</div>' +
+      '<div class="ls-badge ' + (isLong?'long':'short') + '">' + (isLong?'LONG':'SHORT') + '</div>' +
+    '</div>';
+  });
+  var el = document.getElementById('crypto-list');
+  if (el) el.innerHTML = html;
+
+  // প্রতি 1.5 সেকেন্ডে crypto update
+  setTimeout(function() {
+    if (document.getElementById('page-stats').classList.contains('active')) {
+      renderAndAnimateCrypto();
+    }
+  }, 1500);
+}
+
 function copyRef() {
   const link = document.getElementById('ref-link').textContent;
   navigator.clipboard.writeText(link).catch(() => {});
@@ -1209,6 +1337,30 @@ function shareRef() {
   .btn-danger{width:100%;background:linear-gradient(135deg,#c62828,#ef5350);color:#fff;font-size:15px;font-weight:700;padding:16px;border-radius:14px;border:none;cursor:pointer;font-family:'Inter',sans-serif;}
   .btn-danger:active{opacity:.85;transform:scale(.98);}
   .btn-outline{width:100%;background:transparent;color:var(--green);font-size:14px;font-weight:600;padding:14px;border-radius:14px;border:1px solid var(--green);cursor:pointer;font-family:'Inter',sans-serif;margin-top:10px;}
+  /* Statistics page */
+  .stats-header-card{background:linear-gradient(135deg,#0d1117,#161b22);border:1px solid #30363d;border-radius:20px;padding:20px;margin-bottom:14px;}
+  .stats-header-title{font-size:15px;font-weight:700;color:#e6edf3;margin-bottom:8px;}
+  .stats-header-desc{font-size:12px;color:#8b949e;line-height:1.6;margin-bottom:16px;}
+  .long-short-bar{display:flex;border-radius:50px;overflow:hidden;height:52px;}
+  .long-side{background:linear-gradient(135deg,#58a6ff,#79c0ff);display:flex;flex-direction:column;align-items:center;justify-content:center;transition:width 0.4s ease;}
+  .short-side{background:linear-gradient(135deg,#f85149,#ff7b72);display:flex;flex-direction:column;align-items:center;justify-content:center;transition:width 0.4s ease;}
+  .ls-pct{font-size:16px;font-weight:800;color:#fff;}
+  .ls-lbl{font-size:10px;font-weight:700;color:rgba(255,255,255,.8);}
+  .crypto-card{background:#0d1117;border:1px solid #21262d;border-radius:16px;padding:14px 16px;margin-bottom:10px;display:flex;align-items:center;gap:12px;}
+  .crypto-icon{width:42px;height:42px;border-radius:50%;object-fit:cover;flex-shrink:0;}
+  .crypto-name{font-size:15px;font-weight:700;color:#e6edf3;}
+  .crypto-price{font-size:13px;color:#8b949e;margin-top:2px;}
+  .crypto-pct{font-size:15px;font-weight:700;margin-left:auto;margin-right:12px;}
+  .crypto-pct.pos{color:#3fb950;}
+  .crypto-pct.neg{color:#f85149;}
+  .ls-badge{padding:5px 14px;border-radius:20px;font-size:12px;font-weight:700;flex-shrink:0;}
+  .ls-badge.long{background:linear-gradient(135deg,#58a6ff,#79c0ff);color:#fff;}
+  .ls-badge.short{background:linear-gradient(135deg,#f85149,#ff7b72);color:#fff;}
+  .profit-ticker{position:fixed;top:0;left:0;right:0;z-index:200;background:rgba(13,17,23,.95);border-bottom:1px solid #21262d;padding:7px 14px;font-size:11px;color:#3fb950;white-space:nowrap;overflow:hidden;display:none;}
+  .profit-ticker-inner{display:inline-block;animation:pticker 25s linear infinite;}
+  @keyframes pticker{from{transform:translateX(100%)}to{transform:translateX(-100%)}}
+  .stats-refresh-time{font-size:10px;color:#8b949e;text-align:right;margin-bottom:8px;}
+
   .bottom-nav{position:fixed;bottom:0;left:0;right:0;background:var(--surface);border-top:1px solid var(--border);display:flex;z-index:100;}
   .nav-item{flex:1;padding:10px 4px 12px;text-align:center;cursor:pointer;transition:all .2s;}
   .nav-item .nav-icon{font-size:20px;margin-bottom:3px;}
@@ -1826,12 +1978,40 @@ Deposit USDT and start earning daily returns.
 </div>
 <!-- END PAGE PROFILE -->
 
+<!-- STATISTICS PAGE -->
+<div class="page" id="page-stats">
+  <div style="padding:14px;">
+    <!-- Header card -->
+    <div class="stats-header-card">
+      <div class="stats-header-title">📊 This page provides a live report of current trading operations</div>
+      <div class="stats-header-desc">Smart Invest is based on a grid trading algorithm. The agent automatically opens both long and short positions with a minimum step of about 0.1%. This allows it to profit even from small price fluctuations.</div>
+      <div class="long-short-bar">
+        <div class="long-side" id="long-bar" style="width:50%">
+          <div class="ls-pct" id="long-pct">50.40%</div>
+          <div class="ls-lbl">LONG</div>
+        </div>
+        <div class="short-side" id="short-bar" style="width:50%">
+          <div class="ls-pct" id="short-pct">49.60%</div>
+          <div class="ls-lbl">SHORT</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="stats-refresh-time" id="stats-refresh-time">Updating...</div>
+
+    <!-- Crypto list -->
+    <div id="crypto-list">
+      <div style="text-align:center;padding:30px;color:#8b949e;font-size:13px;">⏳ Loading live data...</div>
+    </div>
+  </div>
+</div>
+
 <!-- BOTTOM NAV -->
 <div class="bottom-nav">
   <div class="nav-item active" id="nav-home" onclick="goPage('home')"><div class="nav-icon">🏠</div><span class="nav-label">Home</span></div>
   <div class="nav-item" id="nav-deposit" onclick="goPage('deposit')"><div class="nav-icon">💰</div><span class="nav-label">Deposit</span></div>
+  <div class="nav-item" id="nav-stats" onclick="goPage('stats');loadStats()"><div class="nav-icon">📈</div><span class="nav-label">Statistics</span></div>
   <div class="nav-item" id="nav-multiply" onclick="goPage('multiply')"><div class="nav-icon">📋</div><span class="nav-label">Plans</span></div>
-  <div class="nav-item" id="nav-referral" onclick="goPage('referral')"><div class="nav-icon">👥</div><span class="nav-label">Friends</span></div>
   <div class="nav-item" id="nav-profile" onclick="goPage('profile')"><div class="nav-icon">👤</div><span class="nav-label">Profile</span></div>
 </div>
 
