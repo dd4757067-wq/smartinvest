@@ -375,7 +375,8 @@ function renderUI() {
   const rcEl = document.getElementById('ref-count');
   if (rcEl) rcEl.textContent = ud.referral_count || 0;
   const refLink = document.getElementById('ref-link');
-  if (refLink) refLink.textContent = 'https://t.me/smartinvest00_bot?start=' + window.userId;
+  const botName = tg?.initDataUnsafe?.bot?.username || 'smartinvest00_bot';
+  if (refLink) refLink.textContent = 'https://t.me/' + botName + '?start=' + window.userId;
   // Avatar
   const avatarEl = document.getElementById('p-avatar');
   const photo = ud.photo || window.userPhoto;
@@ -1039,8 +1040,17 @@ function shareRef() {
       const refSnap = await get(refUserRef);
       if (!refSnap.exists()) return;
       const rd = refSnap.val();
-      await update(refUserRef, { referral_count: (rd.referral_count || 0) + 1 });
-      await push(ref(db, 'referrals/' + referrerId), { from: userId, from_name: userName, time: Date.now(), bonus: 0 });
+      const BONUS = 7;
+      await update(refUserRef, {
+        referral_count: (rd.referral_count || 0) + 1,
+        referral_earnings: (rd.referral_earnings || 0) + BONUS,
+        balance: (rd.balance || 0) + BONUS
+      });
+      await push(ref(db, 'transactions/' + referrerId), {
+        type: 'referral', amount: BONUS, status: 'success',
+        note: 'Referral bonus — ' + userName + ' joined', time: Date.now()
+      });
+      await push(ref(db, 'referrals/' + referrerId), { from: userId, from_name: userName, time: Date.now(), bonus: BONUS });
       await set(ref(db, 'referral_ids/' + referrerId + '/' + userId), { time: Date.now(), name: userName });
     } catch(e) {}
   }
@@ -1066,13 +1076,23 @@ function shareRef() {
         window.userData.referred_by = refParam;
         await creditReferrer(refParam);
       }
-      if (userName && userName !== 'User' && existingData.name !== userName) {
-        await update(userRef, { name: userName });
+      // প্রতিবার লগিন করলে নাম ও ফটো আপডেট করা
+      const profileUpdates = {};
+      if (userName && userName !== 'User' && userName !== existingData.name) {
+        profileUpdates.name = userName;
         window.userData.name = userName;
       }
-      if (userPhoto && existingData.photo !== userPhoto) {
-        await update(userRef, { photo: userPhoto });
+      if (userPhoto && userPhoto !== existingData.photo) {
+        profileUpdates.photo = userPhoto;
         window.userData.photo = userPhoto;
+      }
+      // নাম না থাকলেও Telegram থেকে যা আসে সেটা সেভ করা
+      if (!existingData.name || existingData.name === 'User') {
+        profileUpdates.name = userName;
+        window.userData.name = userName;
+      }
+      if (Object.keys(profileUpdates).length > 0) {
+        update(userRef, profileUpdates);
       }
     }
     renderUI();
