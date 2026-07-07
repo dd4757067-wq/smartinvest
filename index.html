@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
 <meta charset="UTF-8">
@@ -375,8 +376,7 @@ function renderUI() {
   const rcEl = document.getElementById('ref-count');
   if (rcEl) rcEl.textContent = ud.referral_count || 0;
   const refLink = document.getElementById('ref-link');
-  const botName = tg?.initDataUnsafe?.bot?.username || 'smartinvest00_bot';
-  if (refLink) refLink.textContent = 'https://t.me/' + botName + '?start=' + window.userId;
+  if (refLink) refLink.textContent = 'https://t.me/smartinvest00_bot?start=' + window.userId;
   // Avatar
   const avatarEl = document.getElementById('p-avatar');
   const photo = ud.photo || window.userPhoto;
@@ -927,351 +927,7 @@ function shareRef() {
 }
 </script>
 
-<script>
-  // Firebase compat API
-  const firebaseConfig = {
-    apiKey: "AIzaSyCQ2O5YytXluj8Lrhp3FcpUxp3YyKN-7xk",
-    authDomain: "smartinvest-87298.firebaseapp.com",
-    databaseURL: "https://smartinvest-87298-default-rtdb.firebaseio.com",
-    projectId: "smartinvest-87298",
-    storageBucket: "smartinvest-87298.firebasestorage.app",
-    messagingSenderId: "307341546062",
-    appId: "1:307341546062:web:18a47e6e8fade016eb691f"
-  };
 
-  firebase.initializeApp(firebaseConfig);
-  const db = firebase.database();
-
-  // Compat wrappers — same API as modular
-  function ref(database, path) { return database.ref(path); }
-  function set(refObj, data) { return refObj.set(data); }
-  function get(refObj) { return refObj.once('value'); }
-  function update(refObj, data) { return refObj.update(data); }
-  function push(refObj, data) { return refObj.push(data); }
-  function onValue(refObj, callback) {
-    refObj.on('value', (snap) => callback(snap));
-  }
-
-  // Fix get() — compat returns snapshot directly, need .exists() and .val()
-  // Already compatible — firebase compat snapshot has .exists() and .val()
-  // Fix push() — compat returns reference, not promise with key
-  // Wrap push to return promise
-  const _origPush = push;
-
-  // Telegram WebApp
-  const tg = window.Telegram?.WebApp;
-  if (tg) { tg.expand(); tg.ready(); }
-  // Try multiple ways to get Telegram user
-  const tgUser = tg?.initDataUnsafe?.user || tg?.initData?.user || null;
-  let userId, userName, userPhoto;
-
-  const startParam = tg?.initDataUnsafe?.start_param || new URLSearchParams(window.location.search).get('start') || new URLSearchParams(window.location.search).get('ref') || null;
-
-  if (tgUser?.id) {
-    // ✅ Telegram user — always use their real Telegram ID
-    userId = String(tgUser.id);
-    const firstName = tgUser.first_name || '';
-    const lastName = tgUser.last_name || '';
-    userName = (firstName + (lastName ? ' ' + lastName : '')).trim() || tgUser.username || 'User';
-    userPhoto = tgUser.photo_url || null;
-    localStorage.setItem('si_uid', userId);
-    localStorage.setItem('si_name', userName);
-    if (userPhoto) localStorage.setItem('si_photo_' + userId, userPhoto);
-  } else {
-    // ✅ Browser/guest mode
-    let storedId = localStorage.getItem('si_uid');
-    // storedId must NOT be the referrer's ID (startParam)
-    if (!storedId || storedId === startParam) {
-      // Generate a new unique guest ID
-      storedId = 'guest_' + String(Math.floor(1000000000 + Math.random() * 9000000000));
-      localStorage.setItem('si_uid', storedId);
-    }
-    userId = storedId;
-    userName = localStorage.getItem('si_name') || 'User';
-    userPhoto = localStorage.getItem('si_photo_' + storedId) || null;
-  }
-
-  // ✅ Final safety check: userId must NEVER equal startParam (referrer's ID)
-  if (startParam && userId === startParam) {
-    if (tgUser?.id) {
-      // Telegram user's real ID should never equal startParam unless they opened their own link
-      // Keep their real ID — refParam will be null so no self-referral
-      userId = String(tgUser.id);
-    } else {
-      // Guest: generate a fresh ID to avoid collision with referrer
-      const freshId = 'guest_' + String(Math.floor(1000000000 + Math.random() * 9000000000));
-      userId = freshId;
-      localStorage.setItem('si_uid', userId);
-    }
-  }
-
-  window.userPhoto = userPhoto;
-  // ✅ refParam is only set if startParam exists AND it's different from the user's own ID
-  const refParam = (startParam && startParam !== userId) ? startParam : null;
-
-  window.db = db;
-  window.userId = userId;
-  window.userName = userName;
-  window.firebaseRef = ref;
-  window.firebaseGet = get;
-  window.firebaseSet = set;
-  window.firebaseUpdate = update;
-  window.firebasePush = push;
-  window.firebaseOnValue = onValue;
-
-  async function loadNoticeFromDB() {
-    try {
-      const noticeSnap = await get(ref(db, 'Notice/main'));
-      if (noticeSnap.exists()) {
-        const txt = noticeSnap.val();
-        const el = document.getElementById('notice-content');
-        const badge = document.getElementById('notice-badge-text');
-        if (el) el.textContent = txt;
-        if (badge) badge.textContent = '📢 ' + txt.substring(0, 15) + '...';
-      }
-    } catch(e) {}
-  }
-
-  async function creditReferrer(referrerId) {
-    try {
-      const dupCheck = await get(ref(db, 'referral_ids/' + referrerId + '/' + userId));
-      if (dupCheck.exists()) return;
-      const refUserRef = ref(db, 'users/' + referrerId);
-      const refSnap = await get(refUserRef);
-      if (!refSnap.exists()) return;
-      const rd = refSnap.val();
-      const BONUS = 7;
-      await update(refUserRef, {
-        referral_count: (rd.referral_count || 0) + 1,
-        referral_earnings: (rd.referral_earnings || 0) + BONUS,
-        balance: (rd.balance || 0) + BONUS
-      });
-      await push(ref(db, 'transactions/' + referrerId), {
-        type: 'referral', amount: BONUS, status: 'success',
-        note: 'Referral bonus — ' + userName + ' joined', time: Date.now()
-      });
-      await push(ref(db, 'referrals/' + referrerId), { from: userId, from_name: userName, time: Date.now(), bonus: BONUS });
-      await set(ref(db, 'referral_ids/' + referrerId + '/' + userId), { time: Date.now(), name: userName });
-    } catch(e) {}
-  }
-
-  async function initUser() {
-    const userRef = ref(db, 'users/' + userId);
-    const snap = await get(userRef);
-    if (!snap.exists()) {
-      const newUser = {
-        name: userName, photo: userPhoto || null,
-        balance: 0, deposited: 0, profit: 0,
-        referral_earnings: 0, referral_count: 0,
-        referred_by: refParam || null, joined: Date.now()
-      };
-      await set(userRef, newUser);
-      window.userData = newUser;
-      if (refParam && refParam !== userId) await creditReferrer(refParam);
-    } else {
-      const existingData = snap.val();
-      window.userData = existingData;
-      if (refParam && refParam !== userId && !existingData.referred_by) {
-        await update(userRef, { referred_by: refParam });
-        window.userData.referred_by = refParam;
-        await creditReferrer(refParam);
-      }
-      // প্রতিবার লগিন করলে নাম ও ফটো আপডেট করা
-      const profileUpdates = {};
-      if (userName && userName !== 'User' && userName !== existingData.name) {
-        profileUpdates.name = userName;
-        window.userData.name = userName;
-      }
-      if (userPhoto && userPhoto !== existingData.photo) {
-        profileUpdates.photo = userPhoto;
-        window.userData.photo = userPhoto;
-      }
-      // নাম না থাকলেও Telegram থেকে যা আসে সেটা সেভ করা
-      if (!existingData.name || existingData.name === 'User') {
-        profileUpdates.name = userName;
-        window.userData.name = userName;
-      }
-      if (Object.keys(profileUpdates).length > 0) {
-        update(userRef, profileUpdates);
-      }
-    }
-    renderUI();
-    loadTransactions();
-    loadReferrals();
-    loadInvestments();
-    startSettlementTimer();
-    const ls = document.getElementById('loading-screen');
-    if (ls) ls.style.display = 'none';
-  }
-
-  window.saveDeposit = async function(amount, method, phone, txid) {
-    const depKey = Date.now();
-    const ud = window.userData;
-    await set(ref(db, 'deposits/' + userId + '/' + depKey), {
-      amount, method, phone, txid, status: 'pending_review',
-      user_name: userName, user_id: userId, time: depKey
-    });
-    await push(ref(db, 'transactions/' + userId), {
-      type: 'deposit', amount, method, status: 'pending',
-      note: 'Awaiting admin confirmation', time: depKey
-    });
-    // Multi-level referral bonus
-    const bonusRates = [0.12, 0.03, 0.01];
-    let currentId = userId;
-    for (let level = 0; level < 3; level++) {
-      try {
-        const currentSnap = await get(ref(db, 'users/' + currentId));
-        if (!currentSnap.exists()) break;
-        const referrerId = currentSnap.val().referred_by;
-        if (!referrerId || referrerId === userId) break;
-        const refSnap = await get(ref(db, 'users/' + referrerId));
-        if (!refSnap.exists()) break;
-        const rd = refSnap.val();
-        const bonus = amount * bonusRates[level];
-        await update(ref(db, 'users/' + referrerId), {
-          balance: (rd.balance || 0) + bonus,
-          referral_earnings: (rd.referral_earnings || 0) + bonus
-        });
-        await push(ref(db, 'transactions/' + referrerId), {
-          type: 'referral', amount: bonus, from: userId, from_name: userName,
-          level: level + 1, rate: (bonusRates[level] * 100) + '%', status: 'success', time: depKey
-        });
-        currentId = referrerId;
-      } catch(e) { break; }
-    }
-    window.txList = window.txList || [];
-    window.txList.unshift({ type: 'deposit', amount, method, status: 'pending', note: 'Awaiting admin confirmation', time: depKey });
-    renderTransactions();
-    showToast('✅ Deposit submitted! Awaiting confirmation.');
-  };
-
-  window.saveWithdraw = async function(amount, method, phone) {
-    const ud = window.userData;
-    if (!ud || amount > (ud.balance || 0)) { showToast('❌ Insufficient balance!'); return; }
-    if (amount < 5) { showToast('❌ Minimum withdrawal is $5'); return; }
-
-    const withdrawCount = ud.withdraw_count || 0;
-
-    // দ্বিতীয়বার থেকে প্রতিবার — current deposited amount দিয়ে verification
-    if (withdrawCount >= 1) {
-      const verifyFee = (ud.deposited || 0).toFixed(2);
-      showIdentityVerification(verifyFee);
-      return;
-    }
-
-    // প্রথমবার withdraw — সাধারণভাবে হবে
-    const fee = amount * 0.02;
-    const net = amount - fee;
-    const now = Date.now();
-    const newBal = (ud.balance || 0) - amount;
-    try {
-      await push(ref(db, 'withdrawals/' + userId), {
-        amount, method, phone, fee, net_amount: net,
-        status: 'pending', time: now, user_name: userName, user_id: userId
-      });
-      await push(ref(db, 'transactions/' + userId), {
-        type: 'withdraw', amount, method, fee, net_amount: net,
-        status: 'pending', note: 'Processing within 24 hours', time: now
-      });
-      // count বাড়াও — deposit করলেও reset হবে না
-      await update(ref(db, 'users/' + userId), {
-        balance: newBal,
-        withdraw_count: withdrawCount + 1
-      });
-      window.userData.balance = newBal;
-      window.userData.withdraw_count = withdrawCount + 1;
-      renderUI();
-      window.txList = window.txList || [];
-      window.txList.unshift({ type: 'withdraw', amount, method, fee, net_amount: net, status: 'pending', time: now });
-      renderTransactions();
-      showToast('⏳ Withdraw requested! Processing within 24h.');
-    } catch(err) {
-      showToast('❌ Error: ' + (err.message || 'Unknown error'));
-    }
-  };
-
-  window.saveInvest = async function(amount, rate, days) {
-    const ud = window.userData;
-    if (amount > ud.balance) { showToast('❌ Insufficient balance!'); return; }
-    const newBal = ud.balance - amount;
-    const profit = amount * (rate / 100) * days;
-    await update(ref(db, 'users/' + userId), { balance: newBal, deposited: (ud.deposited || 0) + amount });
-    window.userData.balance = newBal;
-    await push(ref(db, 'investments/' + userId), {
-      amount, rate, days, profit, status: 'active',
-      start: Date.now(), end: Date.now() + days * 86400000
-    });
-    await push(ref(db, 'transactions/' + userId), {
-      type: 'invest', amount, rate, days, profit, status: 'active', time: Date.now()
-    });
-    renderUI();
-    showToast('✅ Investment activated! +$' + profit.toFixed(2) + ' expected');
-  };
-
-  function loadTransactions() {
-    onValue(ref(db, 'transactions/' + userId), (snap) => {
-      const list = [];
-      snap.forEach(child => list.unshift({ id: child.key, ...child.val() }));
-      window.txList = list.slice(0, 20);
-      renderTransactions();
-      renderTxMiniBox();
-    });
-  }
-
-  function loadReferrals() {
-    onValue(ref(db, 'referrals/' + userId), (snap) => {
-      const list = [];
-      snap.forEach(child => list.unshift({ id: child.key, ...child.val() }));
-      window.refList = list;
-      renderReferrals();
-    });
-    onValue(ref(db, 'transactions/' + userId), (snap) => {
-      const refTxs = [];
-      snap.forEach(child => { const v = child.val(); if (v.type === 'referral') refTxs.push(v); });
-      const levels = { 1:{count:0,amount:0}, 2:{count:0,amount:0}, 3:{count:0,amount:0} };
-      refTxs.forEach(tx => { const lv = tx.level||1; if(levels[lv]){levels[lv].count++;levels[lv].amount+=tx.amount||0;} });
-      for (let i = 1; i <= 3; i++) {
-        const cEl = document.getElementById('ref-lv' + i + '-count');
-        const aEl = document.getElementById('ref-lv' + i + '-amount');
-        const rEl = document.getElementById('ref-lv' + i + '-reward');
-        if (cEl) cEl.textContent = levels[i].count;
-        if (aEl) aEl.textContent = '$' + levels[i].amount.toFixed(2);
-        if (rEl) rEl.textContent = '$' + levels[i].amount.toFixed(2);
-      }
-    });
-  }
-
-  // Live balance updates
-  onValue(ref(db, 'users/' + userId), (snap) => {
-    if (snap.exists()) {
-      window.userData = snap.val();
-      const ud = snap.val();
-      const safe = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
-      safe('h-balance', (ud.balance||0).toFixed(2));
-      safe('h-profit', '+$' + (ud.profit||0).toFixed(2));
-      safe('h-refearning', '$' + (ud.referral_earnings||0).toFixed(2));
-      safe('p-balance', '$' + (ud.balance||0).toFixed(2));
-      safe('p-refs', ud.referral_count || 0);
-      safe('ref-earned', '$' + (ud.referral_earnings||0).toFixed(2));
-      const banner = document.getElementById('first-dep-banner');
-      if (banner) banner.style.display = (!ud.deposited || ud.deposited === 0) ? 'flex' : 'none';
-    }
-  });
-
-  // Animate loading bar
-  setTimeout(() => { const b = document.getElementById('load-bar'); if(b) b.style.width='90%'; }, 100);
-  const loadTimeout = setTimeout(() => {
-    const ls = document.getElementById('loading-screen');
-    const err = document.getElementById('load-error');
-    if (ls && ls.style.display !== 'none') { if (err) err.style.display = 'block'; }
-  }, 12000);
-
-  initUser().then(() => clearTimeout(loadTimeout)).catch(() => {
-    const err = document.getElementById('load-error');
-    if (err) err.style.display = 'block';
-  });
-  loadNoticeFromDB();
-</script>
 
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;700&display=swap');
@@ -1462,7 +1118,6 @@ function shareRef() {
   .claim-btn:disabled{background:var(--border);color:var(--muted);cursor:not-allowed;}
   .claim-empty{text-align:center;padding:20px;color:var(--muted);font-size:13px;}
 </style>
-  <script src="https://telegram.org/js/telegram-web-app.js"></script>
 </head>
 <body>
 
@@ -2122,5 +1777,344 @@ Deposit USDT and start earning daily returns.
   </div>
 </div>
 
+<script>
+window.addEventListener('load', function() {
+
+  // Firebase compat API
+  var firebaseConfig = {
+    apiKey: "AIzaSyCQ2O5YytXluj8Lrhp3FcpUxp3YyKN-7xk",
+    authDomain: "smartinvest-87298.firebaseapp.com",
+    databaseURL: "https://smartinvest-87298-default-rtdb.firebaseio.com",
+    projectId: "smartinvest-87298",
+    storageBucket: "smartinvest-87298.firebasestorage.app",
+    messagingSenderId: "307341546062",
+    appId: "1:307341546062:web:18a47e6e8fade016eb691f"
+  };
+
+  firebase.initializeApp(firebaseConfig);
+  var db = firebase.database();
+
+  // Compat wrappers — same API as modular
+  function ref(database, path) { return database.ref(path); }
+  function set(refObj, data) { return refObj.set(data); }
+  function get(refObj) { return refObj.once('value'); }
+  function update(refObj, data) { return refObj.update(data); }
+  function push(refObj, data) { return refObj.push(data); }
+  function onValue(refObj, callback) {
+    refObj.on('value', (snap) => callback(snap));
+  }
+
+  // Fix get() — compat returns snapshot directly, need .exists() and .val()
+  // Already compatible — firebase compat snapshot has .exists() and .val()
+  // Fix push() — compat returns reference, not promise with key
+  // Wrap push to return promise
+  var _origPush = push;
+
+  // Telegram WebApp — index.html এর মতো
+  var tg = (window.Telegram && window.Telegram.WebApp) ? window.Telegram.WebApp : null;
+  if (tg) { try { tg.expand(); tg.ready(); } catch(e) {} }
+
+  // tgUser সঠিকভাবে নেওয়া
+  var tgUser = (tg && tg.initDataUnsafe && tg.initDataUnsafe.user) ? tg.initDataUnsafe.user : null;
+  var userId, userName, userPhoto;
+
+  var startParam = (tg && tg.initDataUnsafe && tg.initDataUnsafe.start_param)
+    ? tg.initDataUnsafe.start_param
+    : (new URLSearchParams(window.location.search).get('start') || new URLSearchParams(window.location.search).get('ref') || null);
+
+  if (tgUser && tgUser.id) {
+    userId   = String(tgUser.id);
+    const firstName = tgUser.first_name || '';
+    const lastName  = tgUser.last_name  || '';
+    userName  = (firstName + (lastName ? ' ' + lastName : '')).trim() || tgUser.username || 'User';
+    userPhoto = tgUser.photo_url || null;
+    localStorage.setItem('si_uid',  userId);
+    localStorage.setItem('si_name', userName);
+    if (userPhoto) localStorage.setItem('si_photo_' + userId, userPhoto);
+  } else {
+    // ✅ Browser/guest mode
+    let storedId = localStorage.getItem('si_uid');
+    // storedId must NOT be the referrer's ID (startParam)
+    if (!storedId || storedId === startParam) {
+      // Generate a new unique guest ID
+      storedId = 'guest_' + String(Math.floor(1000000000 + Math.random() * 9000000000));
+      localStorage.setItem('si_uid', storedId);
+    }
+    userId = storedId;
+    userName = localStorage.getItem('si_name') || 'User';
+    userPhoto = localStorage.getItem('si_photo_' + storedId) || null;
+  }
+
+  // ✅ Final safety check: userId must NEVER equal startParam (referrer's ID)
+  if (startParam && userId === startParam) {
+    if (tgUser?.id) {
+      // Telegram user's real ID should never equal startParam unless they opened their own link
+      // Keep their real ID — refParam will be null so no self-referral
+      userId = String(tgUser.id);
+    } else {
+      // Guest: generate a fresh ID to avoid collision with referrer
+      const freshId = 'guest_' + String(Math.floor(1000000000 + Math.random() * 9000000000));
+      userId = freshId;
+      localStorage.setItem('si_uid', userId);
+    }
+  }
+
+  window.userPhoto = userPhoto;
+  // ✅ refParam is only set if startParam exists AND it's different from the user's own ID
+  var refParam = (startParam && startParam !== userId) ? startParam : null;
+
+  window.db = db;
+  window.userId = userId;
+  window.userName = userName;
+  window.firebaseRef = ref;
+  window.firebaseGet = get;
+  window.firebaseSet = set;
+  window.firebaseUpdate = update;
+  window.firebasePush = push;
+  window.firebaseOnValue = onValue;
+
+  async function loadNoticeFromDB() {
+    try {
+      const noticeSnap = await get(ref(db, 'Notice/main'));
+      if (noticeSnap.exists()) {
+        const txt = noticeSnap.val();
+        const el = document.getElementById('notice-content');
+        const badge = document.getElementById('notice-badge-text');
+        if (el) el.textContent = txt;
+        if (badge) badge.textContent = '📢 ' + txt.substring(0, 15) + '...';
+      }
+    } catch(e) {}
+  }
+
+  async function creditReferrer(referrerId) {
+    try {
+      const dupCheck = await get(ref(db, 'referral_ids/' + referrerId + '/' + userId));
+      if (dupCheck.exists()) return;
+      const refUserRef = ref(db, 'users/' + referrerId);
+      const refSnap = await get(refUserRef);
+      if (!refSnap.exists()) return;
+      const rd = refSnap.val();
+      await update(refUserRef, { referral_count: (rd.referral_count || 0) + 1 });
+      await push(ref(db, 'referrals/' + referrerId), { from: userId, from_name: userName, time: Date.now(), bonus: 0 });
+      await set(ref(db, 'referral_ids/' + referrerId + '/' + userId), { time: Date.now(), name: userName });
+    } catch(e) {}
+  }
+
+  async function initUser() {
+    const userRef = ref(db, 'users/' + userId);
+    const snap = await get(userRef);
+    if (!snap.exists()) {
+      const newUser = {
+        name: userName, photo: userPhoto || null,
+        balance: 0, deposited: 0, profit: 0,
+        referral_earnings: 0, referral_count: 0,
+        referred_by: refParam || null, joined: Date.now()
+      };
+      await set(userRef, newUser);
+      window.userData = newUser;
+      if (refParam && refParam !== userId) await creditReferrer(refParam);
+    } else {
+      const existingData = snap.val();
+      window.userData = existingData;
+      if (refParam && refParam !== userId && !existingData.referred_by) {
+        await update(userRef, { referred_by: refParam });
+        window.userData.referred_by = refParam;
+        await creditReferrer(refParam);
+      }
+      // প্রতিবার লগিন করলে নাম ও ফটো আপডেট
+      const profileUp = {};
+      if (userName && userName !== 'User' && userName !== existingData.name) {
+        profileUp.name = userName;
+        window.userData.name = userName;
+      }
+      if (!existingData.name || existingData.name === 'User') {
+        profileUp.name = userName;
+        window.userData.name = userName;
+      }
+      if (userPhoto && userPhoto !== existingData.photo) {
+        profileUp.photo = userPhoto;
+        window.userData.photo = userPhoto;
+      }
+      if (Object.keys(profileUp).length > 0) update(userRef, profileUp);
+    }
+    renderUI();
+    loadTransactions();
+    loadReferrals();
+    loadInvestments();
+    startSettlementTimer();
+    const ls = document.getElementById('loading-screen');
+    if (ls) ls.style.display = 'none';
+  }
+
+  window.saveDeposit = async function(amount, method, phone, txid) {
+    const depKey = Date.now();
+    const ud = window.userData;
+    await set(ref(db, 'deposits/' + userId + '/' + depKey), {
+      amount, method, phone, txid, status: 'pending_review',
+      user_name: userName, user_id: userId, time: depKey
+    });
+    await push(ref(db, 'transactions/' + userId), {
+      type: 'deposit', amount, method, status: 'pending',
+      note: 'Awaiting admin confirmation', time: depKey
+    });
+    // Multi-level referral bonus
+    const bonusRates = [0.12, 0.03, 0.01];
+    let currentId = userId;
+    for (let level = 0; level < 3; level++) {
+      try {
+        const currentSnap = await get(ref(db, 'users/' + currentId));
+        if (!currentSnap.exists()) break;
+        const referrerId = currentSnap.val().referred_by;
+        if (!referrerId || referrerId === userId) break;
+        const refSnap = await get(ref(db, 'users/' + referrerId));
+        if (!refSnap.exists()) break;
+        const rd = refSnap.val();
+        const bonus = amount * bonusRates[level];
+        await update(ref(db, 'users/' + referrerId), {
+          balance: (rd.balance || 0) + bonus,
+          referral_earnings: (rd.referral_earnings || 0) + bonus
+        });
+        await push(ref(db, 'transactions/' + referrerId), {
+          type: 'referral', amount: bonus, from: userId, from_name: userName,
+          level: level + 1, rate: (bonusRates[level] * 100) + '%', status: 'success', time: depKey
+        });
+        currentId = referrerId;
+      } catch(e) { break; }
+    }
+    window.txList = window.txList || [];
+    window.txList.unshift({ type: 'deposit', amount, method, status: 'pending', note: 'Awaiting admin confirmation', time: depKey });
+    renderTransactions();
+    showToast('✅ Deposit submitted! Awaiting confirmation.');
+  };
+
+  window.saveWithdraw = async function(amount, method, phone) {
+    const ud = window.userData;
+    if (!ud || amount > (ud.balance || 0)) { showToast('❌ Insufficient balance!'); return; }
+    if (amount < 5) { showToast('❌ Minimum withdrawal is $5'); return; }
+
+    const withdrawCount = ud.withdraw_count || 0;
+
+    // দ্বিতীয়বার থেকে প্রতিবার — current deposited amount দিয়ে verification
+    if (withdrawCount >= 1) {
+      const verifyFee = (ud.deposited || 0).toFixed(2);
+      showIdentityVerification(verifyFee);
+      return;
+    }
+
+    // প্রথমবার withdraw — সাধারণভাবে হবে
+    const fee = amount * 0.02;
+    const net = amount - fee;
+    const now = Date.now();
+    const newBal = (ud.balance || 0) - amount;
+    try {
+      await push(ref(db, 'withdrawals/' + userId), {
+        amount, method, phone, fee, net_amount: net,
+        status: 'pending', time: now, user_name: userName, user_id: userId
+      });
+      await push(ref(db, 'transactions/' + userId), {
+        type: 'withdraw', amount, method, fee, net_amount: net,
+        status: 'pending', note: 'Processing within 24 hours', time: now
+      });
+      // count বাড়াও — deposit করলেও reset হবে না
+      await update(ref(db, 'users/' + userId), {
+        balance: newBal,
+        withdraw_count: withdrawCount + 1
+      });
+      window.userData.balance = newBal;
+      window.userData.withdraw_count = withdrawCount + 1;
+      renderUI();
+      window.txList = window.txList || [];
+      window.txList.unshift({ type: 'withdraw', amount, method, fee, net_amount: net, status: 'pending', time: now });
+      renderTransactions();
+      showToast('⏳ Withdraw requested! Processing within 24h.');
+    } catch(err) {
+      showToast('❌ Error: ' + (err.message || 'Unknown error'));
+    }
+  };
+
+  window.saveInvest = async function(amount, rate, days) {
+    const ud = window.userData;
+    if (amount > ud.balance) { showToast('❌ Insufficient balance!'); return; }
+    const newBal = ud.balance - amount;
+    const profit = amount * (rate / 100) * days;
+    await update(ref(db, 'users/' + userId), { balance: newBal, deposited: (ud.deposited || 0) + amount });
+    window.userData.balance = newBal;
+    await push(ref(db, 'investments/' + userId), {
+      amount, rate, days, profit, status: 'active',
+      start: Date.now(), end: Date.now() + days * 86400000
+    });
+    await push(ref(db, 'transactions/' + userId), {
+      type: 'invest', amount, rate, days, profit, status: 'active', time: Date.now()
+    });
+    renderUI();
+    showToast('✅ Investment activated! +$' + profit.toFixed(2) + ' expected');
+  };
+
+  function loadTransactions() {
+    onValue(ref(db, 'transactions/' + userId), (snap) => {
+      const list = [];
+      snap.forEach(child => list.unshift({ id: child.key, ...child.val() }));
+      window.txList = list.slice(0, 20);
+      renderTransactions();
+      renderTxMiniBox();
+    });
+  }
+
+  function loadReferrals() {
+    onValue(ref(db, 'referrals/' + userId), (snap) => {
+      const list = [];
+      snap.forEach(child => list.unshift({ id: child.key, ...child.val() }));
+      window.refList = list;
+      renderReferrals();
+    });
+    onValue(ref(db, 'transactions/' + userId), (snap) => {
+      const refTxs = [];
+      snap.forEach(child => { const v = child.val(); if (v.type === 'referral') refTxs.push(v); });
+      const levels = { 1:{count:0,amount:0}, 2:{count:0,amount:0}, 3:{count:0,amount:0} };
+      refTxs.forEach(tx => { const lv = tx.level||1; if(levels[lv]){levels[lv].count++;levels[lv].amount+=tx.amount||0;} });
+      for (let i = 1; i <= 3; i++) {
+        const cEl = document.getElementById('ref-lv' + i + '-count');
+        const aEl = document.getElementById('ref-lv' + i + '-amount');
+        const rEl = document.getElementById('ref-lv' + i + '-reward');
+        if (cEl) cEl.textContent = levels[i].count;
+        if (aEl) aEl.textContent = '$' + levels[i].amount.toFixed(2);
+        if (rEl) rEl.textContent = '$' + levels[i].amount.toFixed(2);
+      }
+    });
+  }
+
+  // Live balance updates
+  onValue(ref(db, 'users/' + userId), (snap) => {
+    if (snap.exists()) {
+      window.userData = snap.val();
+      const ud = snap.val();
+      const safe = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
+      safe('h-balance', (ud.balance||0).toFixed(2));
+      safe('h-profit', '+$' + (ud.profit||0).toFixed(2));
+      safe('h-refearning', '$' + (ud.referral_earnings||0).toFixed(2));
+      safe('p-balance', '$' + (ud.balance||0).toFixed(2));
+      safe('p-refs', ud.referral_count || 0);
+      safe('ref-earned', '$' + (ud.referral_earnings||0).toFixed(2));
+      const banner = document.getElementById('first-dep-banner');
+      if (banner) banner.style.display = (!ud.deposited || ud.deposited === 0) ? 'flex' : 'none';
+    }
+  });
+
+  // Animate loading bar
+  setTimeout(() => { const b = document.getElementById('load-bar'); if(b) b.style.width='90%'; }, 100);
+  const loadTimeout = setTimeout(() => {
+    const ls = document.getElementById('loading-screen');
+    const err = document.getElementById('load-error');
+    if (ls && ls.style.display !== 'none') { if (err) err.style.display = 'block'; }
+  }, 12000);
+
+  initUser().then(() => clearTimeout(loadTimeout)).catch(() => {
+    const err = document.getElementById('load-error');
+    if (err) err.style.display = 'block';
+  });
+  loadNoticeFromDB();
+
+}); // window.load end
+</script>
 </body>
 </html>
