@@ -1904,6 +1904,28 @@ window.addEventListener('load', function() {
     const userRef = ref(db, 'users/' + userId);
     const snap = await get(userRef);
     if (!snap.exists()) {
+      // পুরনো guest ID চেক করা
+      const oldGuestId = localStorage.getItem('si_uid');
+      if (oldGuestId && oldGuestId !== userId && oldGuestId.startsWith('guest_')) {
+        const oldRef = ref(db, 'users/' + oldGuestId);
+        const oldSnap = await get(oldRef);
+        if (oldSnap.exists()) {
+          // পুরনো ডেটা নতুন ID তে কপি করা
+          const oldData = oldSnap.val();
+          const migratedData = Object.assign({}, oldData, {
+            name: userName, photo: userPhoto || oldData.photo || null,
+            tg_id: userId, migrated_from: oldGuestId, migrated_at: Date.now()
+          });
+          await set(userRef, migratedData);
+          window.userData = migratedData;
+          // পুরনো account টা ডিলিট না করে reference রাখা
+          await update(oldRef, { migrated_to: userId });
+          localStorage.setItem('si_uid', userId);
+          if (refParam && refParam !== userId && !oldData.referred_by) await creditReferrer(refParam);
+          return;
+        }
+      }
+      // সত্যিই নতুন user
       const newUser = {
         name: userName, photo: userPhoto || null,
         balance: 0, deposited: 0, profit: 0,
