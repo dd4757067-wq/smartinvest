@@ -792,21 +792,23 @@ async function claimAdTaskReward() {
       day: getAdTodayKey(), count: newCount, lastWatch: Date.now()
     });
 
-    if (cb) { cb.textContent = '✅ Claimed'; cb.disabled = true; cb.style.background = '#333'; cb.style.color = '#aaa'; }
     const s = document.getElementById('task3-status');
     if (s) s.textContent = '🎉 $0.01 credited to your balance!';
     showToast('🎉 $0.01 reward added!');
 
-    // Reset step display and go back to cooldown/limit view
+    // Immediately hide claim step and reset button for next time, then show cooldown/limit view
+    document.getElementById('task3-step3').style.display = 'none';
+    if (cb) { cb.textContent = '🎁 Claim $0.01'; cb.disabled = false; cb.style.background = 'linear-gradient(135deg,#00c853,#00e676)'; cb.style.color = '#000'; }
+    const step1btn = document.querySelector('#task3-step1 button');
+    if (step1btn) { step1btn.textContent = '📺 Watch Ad'; step1btn.disabled = false; }
+
     setTimeout(() => {
-      document.getElementById('task3-step3').style.display = 'none';
       const s2 = document.getElementById('task3-status');
       if (s2) s2.textContent = '';
-      if (cb) { cb.textContent = '🎁 Claim $0.01'; cb.disabled = false; cb.style.background = 'linear-gradient(135deg,#00c853,#00e676)'; cb.style.color = '#000'; }
-      const step1btn = document.querySelector('#task3-step1 button');
-      if (step1btn) { step1btn.textContent = '📺 Watch Ad'; step1btn.disabled = false; }
-      refreshAdTaskUI();
-    }, 2000);
+    }, 3000);
+
+    // Refresh UI to show cooldown timer immediately
+    refreshAdTaskUI();
 
   } catch(e) {
     if (cb) { cb.textContent = '🎁 Claim $0.01'; cb.disabled = false; }
@@ -2272,13 +2274,27 @@ window.addEventListener('load', function() {
   window.showAdsgramAd = function() {
     return new Promise(function(resolve) {
       if (!window.AdController) { resolve(true); return; }
-      window.AdController.show().then(function(result) {
-        // result.done = true means ad watched fully
-        resolve(result.done === true);
-      }).catch(function(err) {
-        console.log('Ad error:', err);
-        resolve(true); // if ad fails, still allow claim
-      });
+      var settled = false;
+      // Safety timeout: if Adsgram doesn't respond in 8 seconds (e.g. block not active), allow claim anyway
+      var timeoutId = setTimeout(function() {
+        if (!settled) { settled = true; console.log('Adsgram timeout - proceeding anyway'); resolve(true); }
+      }, 8000);
+      try {
+        window.AdController.show().then(function(result) {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timeoutId);
+          resolve(result && result.done === true);
+        }).catch(function(err) {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timeoutId);
+          console.log('Ad error:', err);
+          resolve(true); // if ad fails/not active, still allow claim
+        });
+      } catch(e) {
+        if (!settled) { settled = true; clearTimeout(timeoutId); resolve(true); }
+      }
     });
   };
   window.firebaseOnValue = onValue;
