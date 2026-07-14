@@ -666,24 +666,24 @@ async function claimAdTaskReward() {
 
   try {
     const ud = window.userData;
-    const newBal = (ud.balance || 0) + 0.1;
+    const newBal = (ud.balance || 0) + 0.01;
     await window.firebaseUpdate(window.firebaseRef(window.db, 'users/' + uid), { balance: newBal });
     await window.firebasePush(window.firebaseRef(window.db, 'transactions/' + uid), {
-      type: 'bonus', amount: 0.1, note: 'Watch Ad Task', status: 'success', time: Date.now()
+      type: 'bonus', amount: 0.01, note: 'Watch Ad Task', status: 'success', time: Date.now()
     });
     window.userData.balance = newBal;
     renderUI();
 
     if (cb) { cb.textContent = '✅ Claimed'; cb.disabled = true; cb.style.background = '#333'; cb.style.color = '#aaa'; }
     const s = document.getElementById('task3-status');
-    if (s) s.textContent = '🎉 $0.10 credited to your balance!';
-    showToast('🎉 $0.10 reward added!');
+    if (s) s.textContent = '🎉 $0.01 credited to your balance!';
+    showToast('🎉 $0.01 reward added!');
 
     // Reset after 5 minutes so user can watch again
     setTimeout(() => {
       document.getElementById('task3-step1').style.display = 'block';
       document.getElementById('task3-step3').style.display = 'none';
-      if (cb) { cb.textContent = '🎁 Claim $0.10'; cb.disabled = false; cb.style.background = 'linear-gradient(135deg,#00c853,#00e676)'; cb.style.color = '#000'; }
+      if (cb) { cb.textContent = '🎁 Claim $0.01'; cb.disabled = false; cb.style.background = 'linear-gradient(135deg,#00c853,#00e676)'; cb.style.color = '#000'; }
       const s2 = document.getElementById('task3-status');
       if (s2) s2.textContent = '';
       const step1btn = document.querySelector('#task3-step1 button');
@@ -691,7 +691,7 @@ async function claimAdTaskReward() {
     }, 5 * 60 * 1000);
 
   } catch(e) {
-    if (cb) { cb.textContent = '🎁 Claim $0.10'; cb.disabled = false; }
+    if (cb) { cb.textContent = '🎁 Claim $0.01'; cb.disabled = false; }
     showToast('❌ Error: ' + (e.message || 'Try again'));
   }
 }
@@ -1615,7 +1615,7 @@ Deposit USDT and start earning daily returns.
 
     <!-- Step 3: Claim button -->
     <div id="task3-step3" style="display:none;margin-top:14px;">
-      <button onclick="claimAdTaskReward()" id="task3-claim-btn" style="width:100%;background:linear-gradient(135deg,#00c853,#00e676);color:#000;font-size:14px;font-weight:700;padding:12px;border-radius:12px;border:none;cursor:pointer;">🎁 Claim $0.10</button>
+      <button onclick="claimAdTaskReward()" id="task3-claim-btn" style="width:100%;background:linear-gradient(135deg,#00c853,#00e676);color:#000;font-size:14px;font-weight:700;padding:12px;border-radius:12px;border:none;cursor:pointer;">🎁 Claim $0.01</button>
     </div>
 
     <div id="task3-status" style="margin-top:10px;font-size:12px;text-align:center;color:var(--muted);"></div>
