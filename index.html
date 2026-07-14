@@ -349,7 +349,7 @@ function goPage(name) {
   if (name === 'withdraw') updateWitAvail();
   if (name === 'history') renderHistoryPage(window.currentHistoryTab || 'all');
   if (name === 'txdetail') { renderDTabLists(); switchDTab('deposit'); }
-  if (name === 'tasks') { checkTaskStatus(); }
+  if (name === 'tasks') { checkTaskStatus(); refreshAdTaskUI(); }
 }
 
 function showToast(msg) {
@@ -626,7 +626,118 @@ async function refreshData() {
 }
 
 
+// ===== WATCH AD TASK - Daily Limit System =====
+var AD_DAILY_LIMIT = 10;
+var AD_COOLDOWN_SECONDS = 5 * 60; // 5 minutes between ads
+var adCooldownInterval = null;
+var adResetInterval = null;
+
+function getAdTodayKey() {
+  var d = new Date();
+  return d.getFullYear() + '-' + (d.getMonth()+1) + '-' + d.getDate();
+}
+
+function getAdNextMidnight() {
+  var d = new Date();
+  d.setHours(24, 0, 0, 0);
+  return d.getTime();
+}
+
+async function getAdTaskState() {
+  if (!window.db || !window.userId) return { day: getAdTodayKey(), count: 0, lastWatch: 0 };
+  var snap = await window.firebaseGet(window.firebaseRef(window.db, 'ad_task_state/' + window.userId));
+  var val = snap.exists() ? snap.val() : null;
+  if (!val || val.day !== getAdTodayKey()) {
+    var freshState = { day: getAdTodayKey(), count: 0, lastWatch: 0 };
+    await window.firebaseSet(window.firebaseRef(window.db, 'ad_task_state/' + window.userId), freshState);
+    return freshState;
+  }
+  return val;
+}
+
+async function refreshAdTaskUI() {
+  const state = await getAdTaskState();
+  const countEl = document.getElementById('task3-daily-count');
+  if (countEl) countEl.textContent = 'Today: ' + (state.count||0) + ' / ' + AD_DAILY_LIMIT + ' ads watched';
+
+  const step1 = document.getElementById('task3-step1');
+  const cooldownBox = document.getElementById('task3-cooldown');
+  const limitBox = document.getElementById('task3-limit-reached');
+
+  if (adCooldownInterval) { clearInterval(adCooldownInterval); adCooldownInterval = null; }
+  if (adResetInterval) { clearInterval(adResetInterval); adResetInterval = null; }
+
+  // Check daily limit first
+  if ((state.count||0) >= AD_DAILY_LIMIT) {
+    step1.style.display = 'none';
+    cooldownBox.style.display = 'none';
+    limitBox.style.display = 'block';
+    startAdResetTimer();
+    return;
+  }
+
+  // Check cooldown (5 min since last watch)
+  const elapsed = (Date.now() - (state.lastWatch||0)) / 1000;
+  if (elapsed < AD_COOLDOWN_SECONDS) {
+    step1.style.display = 'none';
+    limitBox.style.display = 'none';
+    cooldownBox.style.display = 'block';
+    startAdCooldownTimer(AD_COOLDOWN_SECONDS - elapsed);
+    return;
+  }
+
+  // Ready to watch
+  step1.style.display = 'block';
+  cooldownBox.style.display = 'none';
+  limitBox.style.display = 'none';
+}
+
+function startAdCooldownTimer(secondsLeft) {
+  let remaining = Math.ceil(secondsLeft);
+  const timerEl = document.getElementById('task3-cooldown-timer');
+  function tick() {
+    if (remaining <= 0) {
+      clearInterval(adCooldownInterval);
+      refreshAdTaskUI();
+      return;
+    }
+    const m = Math.floor(remaining / 60);
+    const s = remaining % 60;
+    if (timerEl) timerEl.textContent = String(m).padStart(2,'0') + ':' + String(s).padStart(2,'0');
+    remaining--;
+  }
+  tick();
+  adCooldownInterval = setInterval(tick, 1000);
+}
+
+function startAdResetTimer() {
+  const timerEl = document.getElementById('task3-reset-timer');
+  function tick() {
+    const msLeft = getAdNextMidnight() - Date.now();
+    if (msLeft <= 0) { clearInterval(adResetInterval); refreshAdTaskUI(); return; }
+    const h = Math.floor(msLeft/3600000);
+    const m = Math.floor((msLeft%3600000)/60000);
+    const s = Math.floor((msLeft%60000)/1000);
+    if (timerEl) timerEl.textContent = String(h).padStart(2,'0')+':'+String(m).padStart(2,'0')+':'+String(s).padStart(2,'0');
+  }
+  tick();
+  adResetInterval = setInterval(tick, 1000);
+}
+
 async function watchAdTask() {
+  const state = await getAdTaskState();
+  if ((state.count||0) >= AD_DAILY_LIMIT) {
+    showToast('🔒 Daily limit reached! Come back tomorrow.');
+    refreshAdTaskUI();
+    return;
+  }
+  const elapsed = (Date.now() - (state.lastWatch||0)) / 1000;
+  if (elapsed < AD_COOLDOWN_SECONDS) {
+    showToast('⏳ Please wait for cooldown to finish.');
+    refreshAdTaskUI();
+    return;
+  }
+
   const btn = document.querySelector('#task3-step1 button');
   if (btn) { btn.textContent = '⏳ Loading ad...'; btn.disabled = true; }
 
@@ -674,21 +785,28 @@ async function claimAdTaskReward() {
     window.userData.balance = newBal;
     renderUI();
 
+    // Update daily count in Firebase
+    const state = await getAdTaskState();
+    const newCount = (state.count||0) + 1;
+    await window.firebaseSet(window.firebaseRef(window.db, 'ad_task_state/' + uid), {
+      day: getAdTodayKey(), count: newCount, lastWatch: Date.now()
+    });
+
     if (cb) { cb.textContent = '✅ Claimed'; cb.disabled = true; cb.style.background = '#333'; cb.style.color = '#aaa'; }
     const s = document.getElementById('task3-status');
     if (s) s.textContent = '🎉 $0.01 credited to your balance!';
     showToast('🎉 $0.01 reward added!');
 
-    // Reset after 5 minutes so user can watch again
+    // Reset step display and go back to cooldown/limit view
     setTimeout(() => {
-      document.getElementById('task3-step1').style.display = 'block';
       document.getElementById('task3-step3').style.display = 'none';
-      if (cb) { cb.textContent = '🎁 Claim $0.01'; cb.disabled = false; cb.style.background = 'linear-gradient(135deg,#00c853,#00e676)'; cb.style.color = '#000'; }
       const s2 = document.getElementById('task3-status');
       if (s2) s2.textContent = '';
+      if (cb) { cb.textContent = '🎁 Claim $0.01'; cb.disabled = false; cb.style.background = 'linear-gradient(135deg,#00c853,#00e676)'; cb.style.color = '#000'; }
       const step1btn = document.querySelector('#task3-step1 button');
       if (step1btn) { step1btn.textContent = '📺 Watch Ad'; step1btn.disabled = false; }
-    }, 5 * 60 * 1000);
+      refreshAdTaskUI();
+    }, 2000);
 
   } catch(e) {
     if (cb) { cb.textContent = '🎁 Claim $0.01'; cb.disabled = false; }
@@ -1596,25 +1714,42 @@ Deposit USDT and start earning daily returns.
       <div style="width:48px;height:48px;background:linear-gradient(135deg,#e65100,#ff6d00);border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:24px;flex-shrink:0;">📺</div>
       <div style="flex:1;">
         <div style="font-size:14px;font-weight:700;margin-bottom:2px;">Watch an Ad</div>
-        <div style="font-size:12px;color:var(--muted);">Watch a short video ad and earn $0.10 reward</div>
+        <div style="font-size:12px;color:var(--muted);">Watch a short video ad and earn $0.01 reward</div>
       </div>
-      <div style="font-size:15px;font-weight:700;color:var(--green);flex-shrink:0;">+$0.10</div>
+      <div style="font-size:15px;font-weight:700;color:var(--green);flex-shrink:0;">+$0.01</div>
     </div>
 
+    <!-- Daily count display -->
+    <div id="task3-daily-count" style="margin-top:10px;font-size:11px;color:var(--muted);text-align:center;">Today: 0 / 10 ads watched</div>
+
     <!-- Step 1: Watch Ad button -->
-    <div id="task3-step1" style="margin-top:14px;">
+    <div id="task3-step1" style="margin-top:10px;">
       <button onclick="watchAdTask()" style="width:100%;background:linear-gradient(135deg,#e65100,#ff6d00);color:#fff;font-size:13px;font-weight:700;padding:12px;border-radius:12px;border:none;cursor:pointer;">📺 Watch Ad</button>
     </div>
 
+    <!-- Step 1b: Cooldown timer (next ad available in) -->
+    <div id="task3-cooldown" style="display:none;margin-top:10px;">
+      <div style="width:100%;background:var(--card2);color:var(--muted);font-size:13px;font-weight:700;padding:12px;border-radius:12px;text-align:center;border:1px solid var(--border);">
+        ⏳ Next ad available in <span id="task3-cooldown-timer" style="color:#ff6d00;">05:00</span>
+      </div>
+    </div>
+
+    <!-- Step 1c: Daily limit reached -->
+    <div id="task3-limit-reached" style="display:none;margin-top:10px;">
+      <div style="width:100%;background:var(--card2);color:var(--muted);font-size:13px;font-weight:700;padding:12px;border-radius:12px;text-align:center;border:1px solid var(--border);">
+        🔒 Daily limit reached! Resets in <span id="task3-reset-timer" style="color:#ffd54f;">--:--:--</span>
+      </div>
+    </div>
+
     <!-- Step 2: Countdown after ad -->
-    <div id="task3-step2" style="display:none;margin-top:14px;text-align:center;">
+    <div id="task3-step2" style="display:none;margin-top:10px;text-align:center;">
       <div style="font-size:13px;color:var(--muted);margin-bottom:8px;">Ad completed! Please wait...</div>
       <div id="task3-countdown" style="font-size:36px;font-weight:700;color:var(--green);">10</div>
       <div style="font-size:11px;color:var(--muted);margin-top:4px;">seconds remaining</div>
     </div>
 
     <!-- Step 3: Claim button -->
-    <div id="task3-step3" style="display:none;margin-top:14px;">
+    <div id="task3-step3" style="display:none;margin-top:10px;">
       <button onclick="claimAdTaskReward()" id="task3-claim-btn" style="width:100%;background:linear-gradient(135deg,#00c853,#00e676);color:#000;font-size:14px;font-weight:700;padding:12px;border-radius:12px;border:none;cursor:pointer;">🎁 Claim $0.01</button>
     </div>
 
